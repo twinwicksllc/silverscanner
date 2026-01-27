@@ -57,12 +57,23 @@ class Config:
     EBAY_CATEGORY_BULLION = '39487'  # Silver Bullion
     
     # Silver Spot Price Configuration
-    SPOT_PRICE_SOURCES = [
+    # Primary sources for two-key verification
+    PRIMARY_SPOT_SOURCES = [
         'https://www.jmbullion.com/charts/silver-prices/',
-        'https://sdbullion.com/silver-prices',
+        'https://sdbullion.com/silver-prices'
+    ]
+    
+    # Fallback API sources (used when primary sources disagree)
+    FALLBACK_SPOT_SOURCES = [
         'https://www.apmex.com/spot/silver'
     ]
+    
+    # API keys for third-party price sources (optional)
+    METALS_API_KEY = os.getenv('METALS_API_KEY', '')  # metals-api.com
+    ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', '')  # alphavantage.co
+    
     SPOT_PRICE_CACHE_MINUTES = 15
+    SPOT_PRICE_VARIANCE_THRESHOLD = 0.05  # 5% difference triggers fallback verification
     
     # Actual Silver Weight (ASW) Database
     # Troy ounces of pure silver in common U.S. coins
