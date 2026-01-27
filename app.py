@@ -77,6 +77,11 @@ scan_state = {
     'scan_error': None
 }
 
+@app.route('/healthz')
+def health_check():
+    """Health check endpoint for Render and other monitoring services"""
+    return {"status": "healthy"}, 200
+
 @app.route('/')
 def index():
     """Main dashboard page"""
