@@ -3,7 +3,7 @@ Database Models Module
 SQLAlchemy models for storing scan results and deal history
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict
 from sqlalchemy import create_engine, Column, String, Float, Integer, DateTime, Boolean, Text
 from sqlalchemy.ext.declarative import declarative_base
@@ -116,20 +116,49 @@ class AlertHistory(Base):
     def __repr__(self):
         return f"<AlertHistory {self.item_id} {self.alert_type}>"
 
+class PriceHistory(Base):
+    """Model for storing silver spot price history"""
+    __tablename__ = 'price_history'
+    
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    price = Column(Float, nullable=False)
+    source = Column(String(200))  # URL of the source
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<PriceHistory ${self.price:.2f} at {self.timestamp}>"
+
 class DatabaseManager:
     """Manages database operations"""
     
     def __init__(self):
-        # Create database directory if it doesn't exist
-        db_dir = os.path.dirname(Config.DATABASE_PATH)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir)
+        # Use DATABASE_URL from config (supports both PostgreSQL and SQLite)
+        database_url = Config.DATABASE_URL
         
-        # Create engine
-        self.engine = create_engine(f'sqlite:///{Config.DATABASE_PATH}')
+        # For SQLite, create directory if needed
+        if database_url.startswith('sqlite:///'):
+            db_path = database_url.replace('sqlite:///', '')
+            db_dir = os.path.dirname(db_path)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir)
         
-        # Create tables
+        # Create engine with appropriate settings
+        if database_url.startswith('postgresql'):
+            # PostgreSQL settings
+            self.engine = create_engine(
+                database_url,
+                pool_pre_ping=True,
+                pool_recycle=300,
+                echo=False
+            )
+        else:
+            # SQLite settings
+            self.engine = create_engine(database_url)
+        
+        # Create tables if they don't exist
         Base.metadata.create_all(self.engine)
+        logger.info("Database tables created/verified successfully")
         
         # Create session factory
         self.Session = sessionmaker(bind=self.engine)
@@ -292,5 +321,72 @@ class DatabaseManager:
             session.rollback()
             logger.error(f"Error blacklisting seller: {e}")
             return False
+        finally:
+            session.close()
+    
+    def save_price_history(self, price: float, source: str = None) -> bool:
+        """Save a price history entry (every other scrape)"""
+        session = self.get_session()
+        try:
+            price_history = PriceHistory(
+                price=price,
+                source=source
+            )
+            
+            session.add(price_history)
+            session.commit()
+            logger.debug(f"Saved price history: ${price:.2f} from {source}")
+            return True
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error saving price history: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def get_price_history(self, days: int = 30) -> list:
+        """Get price history for the last N days"""
+        session = self.get_session()
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            
+            price_history = session.query(PriceHistory).filter(
+                PriceHistory.timestamp >= cutoff_date
+            ).order_by(PriceHistory.timestamp.asc()).all()
+            
+            return [
+                {
+                    'timestamp': ph.timestamp.isoformat() if ph.timestamp else None,
+                    'price': ph.price,
+                    'source': ph.source
+                }
+                for ph in price_history
+            ]
+            
+        except Exception as e:
+            logger.error(f"Error getting price history: {e}")
+            return []
+        finally:
+            session.close()
+    
+    def cleanup_old_price_history(self, days: int = 30) -> int:
+        """Remove price history records older than N days"""
+        session = self.get_session()
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(days=days)
+            
+            deleted = session.query(PriceHistory).filter(
+                PriceHistory.timestamp < cutoff_date
+            ).delete()
+            
+            session.commit()
+            logger.info(f"Cleaned up {deleted} old price history records")
+            return deleted
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error cleaning up price history: {e}")
+            return 0
         finally:
             session.close()

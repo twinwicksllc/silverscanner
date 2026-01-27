@@ -1,64 +1,60 @@
-# Byte-compiled / optimized / DLL files
+# SuperNinja Silver Deal Scanner - Git Ignore File
+
+# Environment variables (contains sensitive credentials)
+.env
+
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Environments - NEVER COMMIT SECRETS
-.env
-.env.local
-.env.*.local
-.venv
-env/
+# Virtual Environment
 venv/
 ENV/
-env.bak/
-venv.bak/
+env/
 
 # Database
 *.db
+*.sqlite
 *.sqlite3
-*.db-journal
-database/*.db
-database/*.sqlite3
 
 # Logs
-*.log
 logs/
-app.log
-*.log.*
+*.log
 
-# IDEs and Editors
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# OS
 .DS_Store
-
-# Vercel & Platform specific
-.vercel
-.vercel/
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-*.egg
-
-# Application specific
-app.py.backup
-*.backup
-*.bak
-todo.md
-FINAL_SUMMARY.md
+Thumbs.db
 
 # Temporary files
-tmp/
-temp/
 *.tmp
+*.bak
+*.cache
 
-# Secrets (just to be safe)
-*secret*
-*credentials*
-*.key
-*.pem
+# Flask
+instance/
+.webassets-cache
