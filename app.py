@@ -75,6 +75,21 @@ scan_state = {
     'scan_error': None
 }
 
+@app.route('/healthz')
+def healthz():
+    """Health check endpoint for Render and monitoring"""
+    try:
+        return jsonify({
+            'status': 'healthy',
+            'service': 'silver-scanner',
+            'timestamp': datetime.now().isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 500
+
 @app.route('/')
 def index():
     """Main dashboard page"""
