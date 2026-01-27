@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 class DealScanner:
     """Main deal scanner that coordinates all components"""
     
+    # Anti-scam keywords to filter out
+    SCAM_KEYWORDS = ['replica', 'plated', 'clad', 'copy', 'tribute', 'repair', 'parts']
+    
     def __init__(self):
         self.spot_price = SilverSpotPrice()
         self.ebay_api = eBayAPI()
@@ -71,6 +74,13 @@ class DealScanner:
                 item_details = self.ebay_api.extract_item_details(item)
                 
                 if not item_details:
+                    continue
+                
+                # Anti-scam filter: Check title for scam keywords
+                title_lower = item_details.get('title', '').lower()
+                if any(keyword in title_lower for keyword in self.SCAM_KEYWORDS):
+                    logger.debug(f"Filtered out scam item: {item_details.get('title', 'Unknown')}")
+                    rejected_count += 1
                     continue
                 
                 # Calculate ASW

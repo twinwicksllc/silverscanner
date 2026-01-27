@@ -39,6 +39,9 @@ class Config:
     DEAL_THRESHOLD_PERCENTAGE = float(os.getenv('DEAL_THRESHOLD_PERCENTAGE', 83.0))
     MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))
     
+    # User Timezone Configuration
+    USER_TIMEZONE = os.getenv('USER_TIMEZONE', 'America/Chicago')  # Default to CST (Chicago)
+    
     # Search Keywords and Categories
     SEARCH_KEYWORDS = [
         'Walking Liberty half',

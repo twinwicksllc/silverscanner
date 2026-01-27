@@ -6,7 +6,7 @@ Handles authentication and data retrieval from eBay Browse API
 import requests
 import time
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from config import Config
 
@@ -86,7 +86,20 @@ class eBayAPI:
             # Add shipping filter to exclude items with no shipping
             params['filter'] += ',deliveryCountry:US'
             
+            # Add sort order - newest first
+            params['sort'] = 'StartTimeNewest'
+            
+            # Add dynamic time filter based on SCAN_INTERVAL
+            # eBay uses UTC/GMT timezone
+            lookback_minutes = Config.SCAN_INTERVAL_MINUTES + 5
+            cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=lookback_minutes)
+            cutoff_str = cutoff_time.strftime('%Y-%m-%dT%H:%M:%SZ')
+            current_str = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+            
+            params['filter'] += f',itemStartTime:[{cutoff_str}..{current_str}]'
+            
             logger.info(f"Searching eBay for: {keywords}")
+            logger.info(f"Time window: {cutoff_str} to {current_str} (UTC, {lookback_minutes}min lookback)")
             response = requests.get(search_url, headers=self.headers, params=params)
             
             # Handle rate limiting
