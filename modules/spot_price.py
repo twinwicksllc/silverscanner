@@ -227,21 +227,24 @@ class SilverSpotPrice:
     def _fetch_from_fallback(self) -> Optional[float]:
         """
         Fetch from fallback sources to break tie
-        Tries in order: Metals-API.com, Alpha Vantage, APMEX scraping
+        Tries in order: Alpha Vantage (PRIMARY), Metals-API.com, APMEX scraping
         """
+        # Try Alpha Vantage FIRST if API key is set (PRIMARY TIE-BREAKER)
+        if Config.ALPHA_VANTAGE_API_KEY:
+            price = self._fetch_from_alpha_vantage()
+            if price:
+                logger.info("✓ Using Alpha Vantage as tie-breaker")
+                return price
+        
         # Try Metals-API.com if API key is set
         if Config.METALS_API_KEY:
             price = self._fetch_from_metals_api()
             if price:
+                logger.info("✓ Using Metals-API as tie-breaker")
                 return price
         
-        # Try Alpha Vantage if API key is set
-        if Config.ALPHA_VANTAGE_API_KEY:
-            price = self._fetch_from_alpha_vantage()
-            if price:
-                return price
-        
-        # Fallback to APMEX scraping
+        # Last resort: APMEX scraping (often returns 403)
+        logger.warning("Attempting APMEX scraping as last resort...")
         return self._fetch_from_apmex()
     
     def _fetch_from_metals_api(self) -> Optional[float]:
