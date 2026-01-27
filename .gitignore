@@ -3,32 +3,62 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Environments
+# Environments - NEVER COMMIT SECRETS
 .env
+.env.local
+.env.*.local
 .venv
 env/
 venv/
 ENV/
+env.bak/
+venv.bak/
 
 # Database
 *.db
 *.sqlite3
 *.db-journal
+database/*.db
+database/*.sqlite3
 
 # Logs
 *.log
 logs/
+app.log
+*.log.*
 
-# Vercel & Editor specific
-.vercel
+# IDEs and Editors
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Vercel & Platform specific
+.vercel
+.vercel/
 
 # Distribution / packaging
 dist/
 build/
 *.egg-info/
+*.egg
 
 # Application specific
-app.log
 app.py.backup
+*.backup
+*.bak
+todo.md
+FINAL_SUMMARY.md
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Secrets (just to be safe)
+*secret*
+*credentials*
+*.key
+*.pem
