@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SuperNinja Silver Deal Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="container">
+            <div class="logo">
+                🥈 SuperNinja <span>Silver Scanner</span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="/">Dashboard</a></li>
+                    <li><a href="/settings">Settings</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="container dashboard">
+        <div class="dashboard-header">
+            <div class="dashboard-title">
+                <h1>Silver Deal Dashboard</h1>
+                <p>Monitor eBay for undervalued silver coins and bullion</p>
+            </div>
+            <button id="scan-button" class="btn btn-primary" onclick="startScan()">
+                🔍 Start Scan
+            </button>
+        </div>
+
+        <!-- Price Information Cards -->
+        <div class="price-cards">
+            <div class="price-card highlight">
+                <h3>Current Spot Price</h3>
+                <div class="value dollar" id="spot-price">
+                    {% if price_info and price_info.spot_price %}
+                        ${{ "%.2f"|format(price_info.spot_price) }}
+                    {% else %}
+                        Loading...
+                    {% endif %}
+                </div>
+                <div class="subtext" id="last-price-update">
+                    {% if price_info and price_info.last_update %}
+                        Updated <span id="price-time-ago">Loading...</span>
+                    {% else %}
+                        Loading...
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="price-card">
+                <h3>Deal Threshold (83%)</h3>
+                <div class="value dollar" id="threshold-price">
+                    {% if price_info and price_info.threshold %}
+                        ${{ "%.2f"|format(price_info.threshold) }}
+                    {% else %}
+                        Loading...
+                    {% endif %}
+                </div>
+                <div class="subtext">Max price per troy oz to qualify</div>
+            </div>
+
+            <div class="price-card">
+                <h3>Recent Deals</h3>
+                <div class="value">
+                    {{ recent_deals|length }}
+                </div>
+                <div class="subtext">Deals found in last 24 hours</div>
+            </div>
+
+            <div class="price-card">
+                <h3>Scan Status</h3>
+                <div class="value">
+                    {% if is_scanning %}
+                        <span class="loading"></span>
+                    {% else %}
+                        ✓
+                    {% endif %}
+                </div>
+                <div class="subtext">
+                    {% if is_scanning %}
+                        Scanning...
+                    {% else %}
+                        Ready
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <div class="status">
+                <span class="status-indicator {% if is_scanning %}scanning{% endif %}" id="status-indicator"></span>
+                <span id="status-text">
+                    {% if is_scanning %}
+                        Scanning eBay for deals...
+                    {% else %}
+                        Ready to scan
+                    {% endif %}
+                </span>
+            </div>
+            <div class="scan-info">
+                <span id="last-scan-time">
+                    {% if last_scan %}
+                        Last scan: <span id="scan-time-ago">Loading...</span>
+                    {% else %}
+                        Last scan: Never
+                    {% endif %}
+                </span>
+            </div>
+        </div>
+
+        <!-- Error Display -->
+        {% if scan_error %}
+        <div class="error-banner" style="background: #e74c3c; color: white; padding: 15px; border-radius: 6px; margin-bottom: 20px;">
+            <strong>Error:</strong> {{ scan_error }}
+        </div>
+        {% endif %}
+
+        <!-- Empty State -->
+        <div id="empty-state" class="empty-state" style="{% if recent_deals %}display: none;{% endif %}">
+            <div class="icon">🔍</div>
+            <h3>No Deals Found Yet</h3>
+            <p>Start a scan to search eBay for undervalued silver deals</p>
+            <button class="btn btn-primary" onclick="startScan()">
+                Start First Scan
+            </button>
+        </div>
+
+        <!-- Deals Table -->
+        <div id="deals-section" class="deals-section" style="{% if not recent_deals %}display: none;{% endif %}">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>Recent Silver Deals</h2>
+                <button class="btn btn-secondary" onclick="fetchDeals()">
+                    🔄 Refresh
+                </button>
+            </div>
+
+            <table class="deals-table">
+                <thead>
+                    <tr>
+                        <th style="width: 30%;">Item</th>
+                        <th style="width: 15%;">Price</th>
+                        <th style="width: 10%;">Silver Weight</th>
+                        <th style="width: 15%;">Cost per Ounce</th>
+                        <th style="width: 15%;">Seller</th>
+                        <th style="width: 15%;">Details</th>
+                    </tr>
+                </thead>
+                <tbody id="deals-table-body">
+                    {% for deal in recent_deals %}
+                    <tr>
+                        <td>
+                            <a href="{{ deal.item_url }}" target="_blank" class="deal-link">
+                                {{ deal.title[:60] }}{% if deal.title|length > 60 %}...{% endif %}
+                            </a>
+                            <br>
+                            <small class="coin-type">{{ deal.coin_name }}</small>
+                        </td>
+                        <td>
+                            <strong>${{ "%.2f"|format(deal.total_cost) }}</strong>
+                            <br>
+                            <small>Item: ${{ "%.2f"|format(deal.price) }} + Ship: ${{ "%.2f"|format(deal.shipping_cost) }}</small>
+                        </td>
+                        <td>
+                            <strong>{{ "%.2f"|format(deal.silver_weight_oz) }} oz</strong>
+                        </td>
+                        <td>
+                            <strong>${{ "%.2f"|format(deal.cost_per_oz) }}/oz</strong>
+                            <br>
+                            {% set discount_class = 'low' %}
+                            {% if deal.discount_percent > 15 %}
+                                {% set discount_class = 'high' %}
+                            {% elif deal.discount_percent > 10 %}
+                                {% set discount_class = 'medium' %}
+                            {% endif %}
+                            <span class="discount-badge {{ discount_class }}">
+                                {{ "%.1f"|format(deal.discount_percent) }}% off
+                            </span>
+                        </td>
+                        <td>
+                            {% set rating_class = 'good' %}
+                            {% if deal.seller_feedback >= 99.5 %}
+                                {% set rating_class = 'excellent' %}
+                            {% endif %}
+                            <div class="seller-rating {{ rating_class }}">
+                                ★ {{ "%.1f"|format(deal.seller_feedback) }}%
+                            </div>
+                            <small>{{ deal.seller_username }}</small>
+                        </td>
+                        <td>
+                            {{ deal.condition }}
+                            <br>
+                            <small>{{ deal.qualified_at|timeago }}</small>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>SuperNinja Silver Deal Scanner &copy; 2024 | Automatically finds undervalued silver on eBay</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

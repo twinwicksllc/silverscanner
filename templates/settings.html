@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - SuperNinja Silver Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="container">
+            <div class="logo">
+                🥈 SuperNinja <span>Silver Scanner</span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href="/">Dashboard</a></li>
+                    <li><a href="/settings" class="active">Settings</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+        <div class="settings-page">
+            <h1>⚙️ Scanner Settings</h1>
+
+            <!-- Deal Detection Settings -->
+            <section class="settings-section">
+                <h2>Deal Detection</h2>
+                
+                <div class="form-group">
+                    <label for="threshold_percentage">
+                        Deal Threshold Percentage
+                    </label>
+                    <input type="number" 
+                           id="threshold_percentage" 
+                           name="threshold_percentage"
+                           min="50" 
+                           max="100" 
+                           step="1"
+                           value="{{ config.DEAL_THRESHOLD_PERCENTAGE }}">
+                    <div class="help-text">
+                        Maximum percentage of spot price to qualify as a deal. Default: 83%
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="min_seller_feedback">
+                        Minimum Seller Feedback
+                    </label>
+                    <input type="number" 
+                           id="min_seller_feedback" 
+                           name="min_seller_feedback"
+                           min="90" 
+                           max="100" 
+                           step="0.1"
+                           value="{{ config.MIN_SELLER_FEEDBACK }}">
+                    <div class="help-text">
+                        Minimum seller rating percentage to consider. Default: 98.0%
+                    </div>
+                </div>
+            </section>
+
+            <!-- Scanning Settings -->
+            <section class="settings-section">
+                <h2>Scanning</h2>
+                
+                <div class="form-group">
+                    <label for="scan_interval">
+                        Scan Interval (minutes)
+                    </label>
+                    <input type="number" 
+                           id="scan_interval" 
+                           name="scan_interval"
+                           min="5" 
+                           max="60" 
+                           step="5"
+                           value="{{ config.SCAN_INTERVAL_MINUTES }}">
+                    <div class="help-text">
+                        How often to automatically scan eBay. Default: 15 minutes
+                    </div>
+                </div>
+            </section>
+
+            <!-- eBay API Configuration -->
+            <section class="settings-section">
+                <h2>eBay API Configuration</h2>
+                
+                <div class="form-group">
+                    <label for="ebay_client_id">
+                        eBay Client ID
+                    </label>
+                    <input type="text" 
+                           id="ebay_client_id" 
+                           name="ebay_client_id"
+                           placeholder="Enter your eBay Client ID"
+                           value="{{ config.EBAY_CLIENT_ID }}">
+                    <div class="help-text">
+                        Your eBay Application Client ID from developer.ebay.com
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="ebay_client_secret">
+                        eBay Client Secret
+                    </label>
+                    <input type="password" 
+                           id="ebay_client_secret" 
+                           name="ebay_client_secret"
+                           placeholder="Enter your eBay Client Secret"
+                           value="{{ config.EBAY_CLIENT_SECRET }}">
+                    <div class="help-text">
+                        Your eBay Application Client Secret from developer.ebay.com
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <button id="test-ebay-button" class="btn btn-secondary">
+                        🧪 Test eBay Connection
+                    </button>
+                    <div class="help-text">
+                        Test your eBay API credentials to ensure they work correctly
+                    </div>
+                </div>
+            </section>
+
+            <!-- Notification Settings -->
+            <section class="settings-section">
+                <h2>Notifications</h2>
+                
+                <div class="form-group">
+                    <label for="email_notifications">
+                        Enable Email Notifications
+                    </label>
+                    <select id="email_notifications" name="email_notifications">
+                        <option value="false" {% if not config.ENABLE_EMAIL_NOTIFICATIONS %}selected{% endif %}>
+                            Disabled
+                        </option>
+                        <option value="true" {% if config.ENABLE_EMAIL_NOTIFICATIONS %}selected{% endif %}>
+                            Enabled
+                        </option>
+                    </select>
+                    <div class="help-text">
+                        Receive email alerts when new deals are found
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="email_to">
+                        Notification Email Address
+                    </label>
+                    <input type="email" 
+                           id="email_to" 
+                           name="email_to"
+                           placeholder="your-email@example.com"
+                           value="{{ config.EMAIL_TO }}">
+                    <div class="help-text">
+                        Email address where deal notifications will be sent
+                    </div>
+                </div>
+            </section>
+
+            <!-- Action Buttons -->
+            <div class="settings-actions">
+                <button type="submit" form="settings-form" class="btn btn-primary">
+                    💾 Save Settings
+                </button>
+                <a href="/" class="btn btn-secondary">
+                    ← Back to Dashboard
+                </a>
+            </div>
+
+            <!-- Configuration Validation -->
+            <section class="settings-section" style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ecf0f1;">
+                <h3>Configuration Status</h3>
+                {% set config_errors = config.validate() %}
+                {% if config_errors %}
+                <div style="background: #e74c3c; color: white; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+                    <strong>⚠️ Configuration Issues:</strong>
+                    <ul style="margin-top: 10px; margin-left: 20px;">
+                        {% for error in config_errors %}
+                        <li>{{ error }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% else %}
+                <div style="background: #27ae60; color: white; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
+                    <strong>✓ Configuration Valid</strong>
+                    <p style="margin-top: 5px;">All required settings are properly configured.</p>
+                </div>
+                {% endif %}
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>SuperNinja Silver Deal Scanner &copy; 2024 | Configure your scanning preferences</p>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

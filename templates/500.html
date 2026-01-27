@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>Server Error - SuperNinja Silver Scanner</title>
+    <link rel='stylesheet' href='{{ url_for('static', filename='css/style.css') }}'>
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <header>
+        <div class='container'>
+            <div class='logo'>
+                🥈 SuperNinja <span>Silver Scanner</span>
+            </div>
+            <nav>
+                <ul>
+                    <li><a href='/'>Dashboard</a></li>
+                    <li><a href='/settings'>Settings</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class='container' style='text-align: center; padding: 100px 20px;'>
+        <div style='font-size: 120px; margin-bottom: 30px;'>500</div>
+        <h1 style='font-size: 2.5rem; color: var(--primary-color); margin-bottom: 20px;'>
+            Scanner Error
+        </h1>
+        <p style='font-size: 1.2rem; color: var(--dark-gray); margin-bottom: 20px;'>
+            Something went wrong with the silver deal scanner.
+        </p>
+        <p style='font-size: 1rem; color: var(--medium-gray); margin-bottom: 40px;'>
+            Please try again later or check the error logs for more details.
+        </p>
+        <div style='margin-bottom: 40px;'>
+            <a href='/' class='btn btn-primary'>
+                ← Back to Dashboard
+            </a>
+            <a href='/settings' class='btn btn-secondary'>
+                ⚙️ Settings
+            </a>
+        </div>
+        <div style='background: var(--light-gray); padding: 20px; border-radius: 8px; max-width: 600px; margin: 0 auto;'>
+            <h3 style='color: var(--primary-color); margin-bottom: 10px;'>Quick Troubleshooting</h3>
+            <ul style='text-align: left; color: var(--dark-gray);'>
+                <li>Check your eBay API credentials in Settings</li>
+                <li>Verify your internet connection</li>
+                <li>Try refreshing the page</li>
+                <li>Check the logs: /workspace/silver_scanner/logs/</li>
+            </ul>
+        </div>
+    </main>
+
+    <footer>
+        <div class='container'>
+            <p>SuperNinja Silver Deal Scanner &amp;copy; 2024</p>
+        </div>
+    </footer>
+</body>
+</html>

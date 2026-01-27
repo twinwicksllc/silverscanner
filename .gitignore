@@ -13,6 +13,11 @@ ENV/
 # Database
 *.db
 *.sqlite3
+*.db-journal
+
+# Logs
+*.log
+logs/
 
 # Vercel & Editor specific
 .vercel
@@ -23,3 +28,7 @@ ENV/
 dist/
 build/
 *.egg-info/
+
+# Application specific
+app.log
+app.py.backup
