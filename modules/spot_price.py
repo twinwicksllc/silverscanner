@@ -10,24 +10,31 @@ import time
 import logging
 from typing import Optional, Dict
 from config import Config
+from database.models import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
 class SilverSpotPrice:
+    
     """Fetches and caches silver spot prices from multiple sources"""
     
-    def __init__(self):
+    def __init__(self, db_manager: DatabaseManager = None):
         self.cache = {}
         self.cache_duration = timedelta(minutes=Config.SPOT_PRICE_CACHE_MINUTES)
+        self.db_manager = db_manager or DatabaseManager()
+        self.scrape_count = 0  # Track number of scrapes to record every other one
         
-    def get_spot_price(self) -> Optional[float]:
+    def get_spot_price(self, force_refresh: bool = False) -> Optional[float]:
         """
         Get current silver spot price from cache or fetch from sources
         Returns price per troy ounce in USD
+        
+        Args:
+            force_refresh: If True, bypass cache and fetch fresh price
         """
-        # Check cache first
+        # Check cache first (unless forced refresh)
         cache_key = 'spot_price'
-        if cache_key in self.cache:
+        if not force_refresh and cache_key in self.cache:
             cached_data = self.cache[cache_key]
             if datetime.now() - cached_data['timestamp'] < self.cache_duration:
                 logger.info(f"Using cached spot price: ${cached_data['price']:.2f}/oz")
@@ -45,6 +52,14 @@ class SilverSpotPrice:
                         'source': source_url
                     }
                     logger.info(f"Updated spot price: ${price:.2f}/oz from {source_url}")
+                    
+                    # Record price history every other scrape
+                    self.scrape_count += 1
+                    if self.scrape_count % 2 == 0:
+                        self.db_manager.save_price_history(price, source_url)
+                        # Clean up old records (older than 1 month)
+                        self.db_manager.cleanup_old_price_history(days=30)
+                    
                     return price
             except Exception as e:
                 logger.warning(f"Failed to fetch from {source_url}: {e}")
@@ -58,7 +73,13 @@ class SilverSpotPrice:
         Fetch spot price from a specific source
         """
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1'
         }
         
         try:

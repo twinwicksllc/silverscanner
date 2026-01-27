@@ -182,10 +182,10 @@ Render will automatically import the environment variables from `render.yaml`. V
 
 ### eBay Production API:
 - `EBAY_USE_SANDBOX` = `False`
-- `EBAY_CLIENT_ID` = (Set in Render dashboard - see your .env file)
-- `EBAY_CLIENT_SECRET` = (Set in Render dashboard - see your .env file)
-- `EBAY_DEV_ID` = (Set in Render dashboard - see your .env file)
-- `EBAY_USER_TOKEN` = (Set in Render dashboard - see your .env file)
+- `EBAY_CLIENT_ID` = `your-production-client-id`
+- `EBAY_CLIENT_SECRET` = `your-production-client-secret`
+- `EBAY_DEV_ID` = `145dfe10-b8fc-48c9-a539-feea884ac234`
+- `EBAY_USER_TOKEN` = `v^1.1#i^1#p^3#I^3#r^1#f^0#t^Ul4xMF8xMTpENjFGMERCNUU0RTQ4N0Y1NjkwNDg1MjkxMDA0MTMwRF8yXzEjRV4yNjA=`
 
 ### Deal Detection:
 - `DEAL_THRESHOLD_PERCENTAGE` = `83.0`

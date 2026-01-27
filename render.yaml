@@ -22,7 +22,6 @@ services:
         value: "5000"
       
       # eBay API Configuration - Production
-      # NOTE: Set these values in Render dashboard after deployment
       - key: EBAY_USE_SANDBOX
         value: "False"
       - key: EBAY_CLIENT_ID

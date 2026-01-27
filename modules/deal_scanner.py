@@ -9,6 +9,8 @@ from typing import List, Dict, Optional
 from modules.spot_price import SilverSpotPrice
 from modules.ebay_api import eBayAPI
 from modules.asw_calculator import ASWCalculator
+from modules.notifications import EmailNotifier
+from database.models import DatabaseManager
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,8 @@ class DealScanner:
         self.spot_price = SilverSpotPrice()
         self.ebay_api = eBayAPI()
         self.asw_calculator = ASWCalculator()
+        self.db_manager = DatabaseManager()
+        self.email_notifier = EmailNotifier(self.db_manager)
         self.scan_results = []
         
     def perform_scan(self) -> List[Dict]:
@@ -113,6 +117,18 @@ class DealScanner:
         logger.info(f"Scan complete: {len(qualified_deals)} deals found, "
                    f"{rejected_count} items rejected")
         logger.info("="*60)
+        
+        # Send instant fire alarm alerts for exceptional deals (greater than or equal to 15% discount)
+        fire_alarm_count = 0
+        for deal in qualified_deals:
+            discount = deal['metrics']['discount_percent']
+            if discount >= 15.0:
+                logger.info(f"Fire alarm triggered for {deal['title'][:50]}... ({discount:.1f}% off)")
+                if self.email_notifier.send_fire_alarm_alert(deal):
+                    fire_alarm_count += 1
+        
+        if fire_alarm_count > 0:
+            logger.info(f"Sent {fire_alarm_count} fire alarm alerts")
         
         self.scan_results = qualified_deals
         return qualified_deals
