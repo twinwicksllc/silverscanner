@@ -126,7 +126,7 @@ class SilverSpotPrice:
         return price
     
     def _fetch_from_jmbullion(self) -> Optional[float]:
-        """Fetch spot price from JM Bullion"""
+        """Fetch spot price from JM Bullion - targets 'Live Spot Prices' section"""
         url = 'https://www.jmbullion.com/charts/silver-prices/'
         try:
             headers = {
@@ -144,24 +144,47 @@ class SilverSpotPrice:
             
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Try multiple selectors
-            selectors = ['span.price', 'div.price', '.spot-price', 'p.price', '[data-price]']
+            # Strategy 1: Look for "Silver Ask" or "Silver:" in list items
+            list_items = soup.find_all('li')
+            for item in list_items:
+                text = item.get_text()
+                if 'Silver Ask' in text or 'Silver:' in text:
+                    # Look for span with class "price" within this item
+                    price_span = item.find('span', class_='price')
+                    if price_span:
+                        price_text = price_span.get_text().strip()
+                        price = self._extract_price_from_text(price_text)
+                        if price and 50 < price < 200:
+                            logger.debug(f"JM Bullion: Found via 'Silver Ask' list item: ${price:.2f}")
+                            return price
             
-            for selector in selectors:
-                elements = soup.select(selector)
-                for element in elements:
-                    text = element.get_text().strip()
-                    price = self._extract_price_from_text(text)
-                    if price and 50 < price < 200:  # Reasonable range
+            # Strategy 2: Look for span.price with data-nosnippet near "Silver"
+            price_spans = soup.find_all('span', class_='price', attrs={'data-nosnippet': True})
+            for span in price_spans:
+                # Check if this is in a silver-related context
+                parent_text = span.parent.get_text() if span.parent else ''
+                if 'Silver' in parent_text or 'silver' in parent_text.lower():
+                    price_text = span.get_text().strip()
+                    price = self._extract_price_from_text(price_text)
+                    if price and 50 < price < 200:
+                        logger.debug(f"JM Bullion: Found via data-nosnippet span: ${price:.2f}")
                         return price
             
-            # Fallback: regex search
-            import re
-            matches = re.findall(r'\$(\d+\.\d{2})', response.text)
-            for match in matches:
-                price = float(match)
-                if 50 < price < 200:
-                    return price
+            # Strategy 3: Look in spot-prices div/section
+            spot_prices_div = soup.find('div', class_='spot-prices')
+            if spot_prices_div:
+                price_spans = spot_prices_div.find_all('span', class_='price')
+                for span in price_spans:
+                    # Check if this is the silver price (second one usually)
+                    parent_text = span.parent.get_text() if span.parent else ''
+                    if 'Silver' in parent_text:
+                        price_text = span.get_text().strip()
+                        price = self._extract_price_from_text(price_text)
+                        if price and 50 < price < 200:
+                            logger.debug(f"JM Bullion: Found in spot-prices div: ${price:.2f}")
+                            return price
+            
+            logger.warning("JM Bullion: Could not find silver price in expected locations")
                     
         except Exception as e:
             logger.error(f"Error fetching from JM Bullion: {e}")
