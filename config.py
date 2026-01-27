@@ -76,6 +76,9 @@ class Config:
     ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', '')  # alphavantage.co
     
     SPOT_PRICE_CACHE_MINUTES = 15
+    
+    # Alpha Vantage rate limiting (max once per hour)
+    ALPHA_VANTAGE_RATE_LIMIT_MINUTES = 60
     SPOT_PRICE_VARIANCE_THRESHOLD = 0.05  # 5% difference triggers fallback verification
     
     # Actual Silver Weight (ASW) Database

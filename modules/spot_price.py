@@ -21,6 +21,8 @@ class SilverSpotPrice:
         self.cache_duration = timedelta(minutes=Config.SPOT_PRICE_CACHE_MINUTES)
         self.db_manager = db_manager or DatabaseManager()
         self.scrape_count = 0
+        self.alpha_vantage_last_call = None  # Track when we last called Alpha Vantage
+        self.alpha_vantage_cache_duration = timedelta(minutes=Config.ALPHA_VANTAGE_RATE_LIMIT_MINUTES)
         
     def get_spot_price(self, force_refresh: bool = False) -> Optional[float]:
         """
@@ -45,6 +47,10 @@ class SilverSpotPrice:
             if datetime.now() - cached_data['timestamp'] < self.cache_duration:
                 logger.info(f"Using cached spot price: ${cached_data['price']:.2f}/oz")
                 return cached_data['price']
+        
+        # Force refresh - bypass cache completely
+        if force_refresh:
+            logger.info("FORCE REFRESH: Bypassing cache and fetching fresh price")
         
         # Step 1: Fetch from primary sources
         logger.info("Fetching from primary sources (JM Bullion, SD Bullion)...")
@@ -117,11 +123,11 @@ class SilverSpotPrice:
         
         logger.info(f"Final verified price: ${price:.2f}/oz from {source}")
         
-        # Record price history every other scrape
+        # Record price history (every fetch for immediate verification)
         self.scrape_count += 1
-        if self.scrape_count % 2 == 0:
-            self.db_manager.save_price_history(price, source)
-            self.db_manager.cleanup_old_price_history(days=30)
+        self.db_manager.save_price_history(price, source)
+        self.db_manager.cleanup_old_price_history(days=30)
+        logger.info(f"💾 Price history recorded: ${price:.2f}/oz (source: {source})")
         
         return price
     
@@ -270,8 +276,16 @@ class SilverSpotPrice:
         return None
     
     def _fetch_from_alpha_vantage(self) -> Optional[float]:
-        """Fetch from Alpha Vantage (requires API key)"""
+        """Fetch from Alpha Vantage (requires API key, rate limited to 1x/hour)"""
+        # Check rate limiting
+        if self.alpha_vantage_last_call:
+            time_since_last_call = datetime.now() - self.alpha_vantage_last_call
+            if time_since_last_call < self.alpha_vantage_cache_duration:
+                logger.warning(f"Alpha Vantage rate limited. Last call: {time_since_last_call.total_seconds()/60:.1f} minutes ago (min: {Config.ALPHA_VANTAGE_RATE_LIMIT_MINUTES} minutes)")
+                return None
+        
         try:
+            logger.info("🔄 FETCHING FROM ALPHA VANTAGE (rate limited to 1x/hour)")
             url = f"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAG&to_currency=USD&apikey={Config.ALPHA_VANTAGE_API_KEY}"
             response = requests.get(url, timeout=10)
             response.raise_for_status()
@@ -281,11 +295,17 @@ class SilverSpotPrice:
                 rate_data = data['Realtime Currency Exchange Rate']
                 price = float(rate_data.get('5. Exchange Rate', 0))
                 if price and 50 < price < 200:
-                    logger.info(f"Alpha Vantage price: ${price:.2f}/oz")
+                    logger.info(f"✅ Alpha Vantage price: ${price:.2f}/oz")
+                    # Update last call timestamp
+                    self.alpha_vantage_last_call = datetime.now()
                     return price
+            else:
+                logger.warning(f"Alpha Vantage response missing expected data: {data}")
                     
         except Exception as e:
             logger.error(f"Error fetching from Alpha Vantage: {e}")
+        
+        return None
         
         return None
     

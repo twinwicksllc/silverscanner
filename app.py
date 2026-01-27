@@ -125,6 +125,32 @@ def api_price():
             'error': str(e)
         }), 500
 
+@app.route('/api/price/refresh', methods=['POST'])
+def api_price_refresh():
+    """API endpoint to force refresh spot price (bypass cache)"""
+    try:
+        logger.info("🔄 FORCE REFRESH: Triggering spot price refresh via API")
+        price = spot_price.get_spot_price(force_refresh=True)
+        
+        if price:
+            price_info = spot_price.get_price_info()
+            return jsonify({
+                'success': True,
+                'message': 'Spot price refreshed successfully',
+                'data': price_info
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to fetch fresh spot price'
+            }), 500
+    except Exception as e:
+        logger.error(f"Error forcing price refresh: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 def _perform_scan_background():
     """Background thread function to perform scan"""
     global scan_state
