@@ -95,11 +95,17 @@ class Config:
     }
     
     # Database Configuration
-    DATABASE_PATH = os.path.join(
-        os.environ.get('RENDER_PERSISTENT_DIR', 
-                      os.path.join(os.path.dirname(__file__), 'database')), 
-        'silver_scanner.db'
-    )
+    # Support both PostgreSQL (Supabase) and SQLite
+    DATABASE_URL = os.getenv('DATABASE_URL', None)
+    
+    # If DATABASE_URL is not set, fall back to SQLite
+    if not DATABASE_URL:
+        DATABASE_PATH = os.path.join(
+            os.environ.get('RENDER_PERSISTENT_DIR', 
+                          os.path.join(os.path.dirname(__file__), 'database')), 
+            'silver_scanner.db'
+        )
+        DATABASE_URL = f'sqlite:///{DATABASE_PATH}'
     
     # Logging Configuration
     LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')

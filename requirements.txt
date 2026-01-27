@@ -16,6 +16,7 @@ lxml==4.9.3
 
 # Database
 SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
 
 # Scheduling
 APScheduler==3.10.4

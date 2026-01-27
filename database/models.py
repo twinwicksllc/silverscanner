@@ -133,16 +133,32 @@ class DatabaseManager:
     """Manages database operations"""
     
     def __init__(self):
-        # Create database directory if it doesn't exist
-        db_dir = os.path.dirname(Config.DATABASE_PATH)
-        if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir)
+        # Use DATABASE_URL from config (supports both PostgreSQL and SQLite)
+        database_url = Config.DATABASE_URL
         
-        # Create engine
-        self.engine = create_engine(f'sqlite:///{Config.DATABASE_PATH}')
+        # For SQLite, create directory if needed
+        if database_url.startswith('sqlite:///'):
+            db_path = database_url.replace('sqlite:///', '')
+            db_dir = os.path.dirname(db_path)
+            if db_dir and not os.path.exists(db_dir):
+                os.makedirs(db_dir)
         
-        # Create tables
+        # Create engine with appropriate settings
+        if database_url.startswith('postgresql'):
+            # PostgreSQL settings
+            self.engine = create_engine(
+                database_url,
+                pool_pre_ping=True,
+                pool_recycle=300,
+                echo=False
+            )
+        else:
+            # SQLite settings
+            self.engine = create_engine(database_url)
+        
+        # Create tables if they don't exist
         Base.metadata.create_all(self.engine)
+        logger.info("Database tables created/verified successfully")
         
         # Create session factory
         self.Session = sessionmaker(bind=self.engine)

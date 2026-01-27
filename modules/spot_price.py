@@ -27,6 +27,7 @@ class SilverSpotPrice:
     def get_spot_price(self, force_refresh: bool = False) -> Optional[float]:
         """
         Get current silver spot price from cache or fetch from sources
+        Averages prices from multiple sources for accuracy
         Returns price per troy ounce in USD
         
         Args:
@@ -40,30 +41,45 @@ class SilverSpotPrice:
                 logger.info(f"Using cached spot price: ${cached_data['price']:.2f}/oz")
                 return cached_data['price']
         
-        # Try each source
+        # Fetch prices from all sources
+        prices = []
+        sources_used = []
+        
         for source_url in Config.SPOT_PRICE_SOURCES:
             try:
                 price = self._fetch_from_source(source_url)
                 if price and price > 0:
-                    # Update cache
-                    self.cache[cache_key] = {
-                        'price': price,
-                        'timestamp': datetime.now(),
-                        'source': source_url
-                    }
-                    logger.info(f"Updated spot price: ${price:.2f}/oz from {source_url}")
-                    
-                    # Record price history every other scrape
-                    self.scrape_count += 1
-                    if self.scrape_count % 2 == 0:
-                        self.db_manager.save_price_history(price, source_url)
-                        # Clean up old records (older than 1 month)
-                        self.db_manager.cleanup_old_price_history(days=30)
-                    
-                    return price
+                    prices.append(price)
+                    sources_used.append(source_url)
+                    logger.info(f"Fetched ${price:.2f}/oz from {source_url}")
             except Exception as e:
                 logger.warning(f"Failed to fetch from {source_url}: {e}")
                 continue
+        
+        # Calculate average if we got at least one price
+        if prices:
+            avg_price = sum(prices) / len(prices)
+            
+            # Update cache
+            self.cache[cache_key] = {
+                'price': avg_price,
+                'timestamp': datetime.now(),
+                'source': ', '.join(sources_used),
+                'individual_prices': prices
+            }
+            
+            logger.info(f"Averaged spot price: ${avg_price:.2f}/oz from {len(prices)} source(s)")
+            if len(prices) > 1:
+                logger.info(f"Individual prices: {', '.join([f'${p:.2f}' for p in prices])}")
+            
+            # Record price history every other scrape
+            self.scrape_count += 1
+            if self.scrape_count % 2 == 0:
+                self.db_manager.save_price_history(avg_price, f"Average of {len(prices)} sources")
+                # Clean up old records (older than 1 month)
+                self.db_manager.cleanup_old_price_history(days=30)
+            
+            return avg_price
         
         logger.error("Failed to fetch spot price from all sources")
         return None

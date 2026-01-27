@@ -1,14 +1,10 @@
-# Email Notification System Implementation
+# Supabase Integration & Email Testing
 
 ## Tasks:
-- [x] Create notifications.py module with SMTP logic
-- [x] Implement instant 'Fire Alarm' alerts (≥15% discount)
-- [x] Implement scheduled 'Silver Digest' (twice daily at 12 PM and 8 PM CST)
-- [x] Create HTML email templates
-- [x] Add email tracking to prevent duplicate sends
-- [x] Integrate with deal scanner
-- [x] Create scheduled digest task
-- [x] Integrate scheduler with app.py
-- [x] Test email functionality (HTML generation verified)
-- [x] Update documentation
-- [ ] Commit and deploy to GitHub/Render
+- [x] Update database configuration to use Supabase PostgreSQL
+- [x] Ensure automatic table creation on startup
+- [x] Add psycopg2-binary to requirements.txt
+- [x] Update spot price module to average from multiple sources
+- [x] Create comprehensive test script
+- [ ] Run test script to verify everything works
+- [ ] Deploy updated code to Render
