@@ -84,6 +84,28 @@
                         How often to automatically scan eBay. Default: 15 minutes
                     </div>
                 </div>
+                
+                <div class="form-group">
+                    <label for="user_timezone">
+                        User Timezone
+                    </label>
+                    <select id="user_timezone" name="user_timezone">
+                        <option value="UTC" {% if config.USER_TIMEZONE == 'UTC' %}selected{% endif %}>UTC (Coordinated Universal Time)</option>
+                        <option value="US/Eastern" {% if config.USER_TIMEZONE == 'US/Eastern' %}selected{% endif %}>US Eastern (New York, Washington D.C.)</option>
+                        <option value="US/Central" {% if config.USER_TIMEZONE == 'US/Central' %}selected{% endif %}>US Central (Chicago, Dallas)</option>
+                        <option value="US/Mountain" {% if config.USER_TIMEZONE == 'US/Mountain' %}selected{% endif %}>US Mountain (Denver, Phoenix)</option>
+                        <option value="US/Pacific" {% if config.USER_TIMEZONE == 'US/Pacific' %}selected{% endif %}>US Pacific (Los Angeles, Seattle)</option>
+                        <option value="Europe/London" {% if config.USER_TIMEZONE == 'Europe/London' %}selected{% endif %}>Europe/London</option>
+                        <option value="Europe/Paris" {% if config.USER_TIMEZONE == 'Europe/Paris' %}selected{% endif %}>Europe/Paris</option>
+                        <option value="Europe/Berlin" {% if config.USER_TIMEZONE == 'Europe/Berlin' %}selected{% endif %}>Europe/Berlin</option>
+                        <option value="Asia/Tokyo" {% if config.USER_TIMEZONE == 'Asia/Tokyo' %}selected{% endif %}>Asia/Tokyo</option>
+                        <option value="Asia/Shanghai" {% if config.USER_TIMEZONE == 'Asia/Shanghai' %}selected{% endif %}>Asia/Shanghai</option>
+                        <option value="Australia/Sydney" {% if config.USER_TIMEZONE == 'Australia/Sydney' %}selected{% endif %}>Australia/Sydney</option>
+                    </select>
+                    <div class="help-text">
+                        Your local timezone for displaying timestamps. Default: UTC
+                    </div>
+                </div>
             </section>
 
             <!-- eBay API Configuration -->

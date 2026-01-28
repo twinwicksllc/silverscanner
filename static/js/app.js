@@ -392,7 +392,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const settings = {
                 threshold_percentage: formData.get('threshold_percentage'),
                 scan_interval: formData.get('scan_interval'),
-                min_seller_feedback: formData.get('min_seller_feedback')
+                min_seller_feedback: formData.get('min_seller_feedback'),
+                user_timezone: formData.get('user_timezone')
             };
             
             try {

@@ -42,6 +42,9 @@ class Config:
     # History Timeframe for Charts (in days)
     HISTORY_TIMEFRAME_DAYS = int(os.getenv('HISTORY_TIMEFRAME_DAYS', 30))
     
+    # User Timezone for Display
+    USER_TIMEZONE = os.getenv('USER_TIMEZONE', 'UTC')
+    
     # Search Keywords and Categories
     SEARCH_KEYWORDS = [
         'Walking Liberty half',

@@ -6,6 +6,7 @@ Web interface and API endpoints
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 import logging
 from datetime import datetime, timedelta
+import pytz
 import threading
 
 # Initialize Flask app FIRST
@@ -39,10 +40,25 @@ def timeago_filter(date_string):
         return 'Never'
     
     try:
+        # Parse the datetime string
         date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
-        now = datetime.now(date.tzinfo)
-        diff = now - date
         
+        # Get user timezone
+        try:
+            user_tz = pytz.timezone(Config.USER_TIMEZONE)
+        except:
+            user_tz = pytz.UTC
+        
+        # Convert datetime to user timezone
+        if date.tzinfo is None:
+            date = pytz.UTC.localize(date)
+        date_user_tz = date.astimezone(user_tz)
+        
+        # Get current time in user timezone
+        now = datetime.now(user_tz)
+        
+        # Calculate difference
+        diff = now - date_user_tz
         seconds = diff.total_seconds()
         
         if seconds < 60:
@@ -55,7 +71,8 @@ def timeago_filter(date_string):
             return f'{int(seconds // 86400)} day{"" if int(seconds // 86400) == 1 else "s"} ago'
         else:
             return f'{int(seconds // 604800)} week{"" if int(seconds // 604800) == 1 else "s"} ago'
-    except:
+    except Exception as e:
+        logger.error(f"Error in timeago_filter: {e}")
         return 'Unknown'
 
 app.jinja_env.filters['timeago'] = timeago_filter
@@ -344,6 +361,8 @@ def api_settings():
             Config.MIN_SELLER_FEEDBACK = float(data['min_seller_feedback'])
         if 'history_timeframe_days' in data:
             Config.HISTORY_TIMEFRAME_DAYS = int(data['history_timeframe_days'])
+        if 'user_timezone' in data:
+            Config.USER_TIMEZONE = str(data['user_timezone'])
         
         logger.info("Settings updated successfully")
         
