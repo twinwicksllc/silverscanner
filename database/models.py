@@ -130,6 +130,20 @@ class PriceHistory(Base):
     def __repr__(self):
         return f"<PriceHistory ${self.price:.2f} at {self.timestamp}>"
 
+
+class Settings(Base):
+    """Model for storing user settings"""
+    __tablename__ = 'settings'
+    
+    id = Column(Integer, primary_key=True)
+    key = Column(String(100), unique=True, nullable=False, index=True)
+    value = Column(String(500))
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<Settings {self.key}={self.value}>"
+
+
 class DatabaseManager:
     """Manages database operations"""
     
@@ -486,5 +500,59 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting last scan from database: {e}")
             return None
+        finally:
+            session.close()
+    
+    def save_setting(self, key: str, value: str) -> bool:
+        """Save or update a setting in the database"""
+        session = self.get_session()
+        try:
+            setting = session.query(Settings).filter_by(key=key).first()
+            
+            if setting:
+                setting.value = value
+                setting.updated_at = datetime.utcnow()
+            else:
+                setting = Settings(key=key, value=value)
+                session.add(setting)
+            
+            session.commit()
+            logger.info(f"Setting saved: {key}={value}")
+            return True
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error saving setting {key}: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def get_setting(self, key: str, default=None):
+        """Get a setting from the database"""
+        session = self.get_session()
+        try:
+            setting = session.query(Settings).filter_by(key=key).first()
+            
+            if setting:
+                return setting.value
+            else:
+                return default
+                
+        except Exception as e:
+            logger.error(f"Error getting setting {key}: {e}")
+            return default
+        finally:
+            session.close()
+    
+    def get_all_settings(self) -> dict:
+        """Get all settings as a dictionary"""
+        session = self.get_session()
+        try:
+            settings = session.query(Settings).all()
+            return {s.key: s.value for s in settings}
+            
+        except Exception as e:
+            logger.error(f"Error getting all settings: {e}")
+            return {}
         finally:
             session.close()

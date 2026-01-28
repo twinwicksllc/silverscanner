@@ -306,18 +306,29 @@ def api_settings():
     try:
         data = request.json
         
-        # Update configuration
+        # Update configuration in memory and persist to database
         if 'threshold_percentage' in data:
-            Config.DEAL_THRESHOLD_PERCENTAGE = float(data['threshold_percentage'])
+            value = float(data['threshold_percentage'])
+            Config.DEAL_THRESHOLD_PERCENTAGE = value
+            db_manager.save_setting('DEAL_THRESHOLD_PERCENTAGE', str(value))
+            
         if 'scan_interval' in data:
-            Config.SCAN_INTERVAL_MINUTES = int(data['scan_interval'])
+            value = int(data['scan_interval'])
+            Config.SCAN_INTERVAL_MINUTES = value
+            db_manager.save_setting('SCAN_INTERVAL_MINUTES', str(value))
+            
         if 'min_seller_feedback' in data:
-            Config.MIN_SELLER_FEEDBACK = float(data['min_seller_feedback'])
+            value = float(data['min_seller_feedback'])
+            Config.MIN_SELLER_FEEDBACK = value
+            db_manager.save_setting('MIN_SELLER_FEEDBACK', str(value))
+            
         if 'user_timezone' in data:
-            Config.USER_TIMEZONE = str(data['user_timezone'])
+            value = str(data['user_timezone'])
+            Config.USER_TIMEZONE = value
+            db_manager.save_setting('USER_TIMEZONE', value)
             logger.info(f"User timezone updated to: {Config.USER_TIMEZONE}")
         
-        logger.info("Settings updated successfully")
+        logger.info("Settings updated successfully and persisted to database")
         
         return jsonify({
             'success': True,
@@ -474,11 +485,42 @@ def server_error(error):
     logger.error(f"Server error: {error}")
     return render_template('500.html'), 500
 
+def load_settings_from_database():
+    """Load settings from database and update Config"""
+    try:
+        settings = db_manager.get_all_settings()
+        
+        if 'DEAL_THRESHOLD_PERCENTAGE' in settings:
+            Config.DEAL_THRESHOLD_PERCENTAGE = float(settings['DEAL_THRESHOLD_PERCENTAGE'])
+            logger.info(f"Loaded DEAL_THRESHOLD_PERCENTAGE: {Config.DEAL_THRESHOLD_PERCENTAGE}")
+            
+        if 'SCAN_INTERVAL_MINUTES' in settings:
+            Config.SCAN_INTERVAL_MINUTES = int(settings['SCAN_INTERVAL_MINUTES'])
+            logger.info(f"Loaded SCAN_INTERVAL_MINUTES: {Config.SCAN_INTERVAL_MINUTES}")
+            
+        if 'MIN_SELLER_FEEDBACK' in settings:
+            Config.MIN_SELLER_FEEDBACK = float(settings['MIN_SELLER_FEEDBACK'])
+            logger.info(f"Loaded MIN_SELLER_FEEDBACK: {Config.MIN_SELLER_FEEDBACK}")
+            
+        if 'USER_TIMEZONE' in settings:
+            Config.USER_TIMEZONE = settings['USER_TIMEZONE']
+            logger.info(f"Loaded USER_TIMEZONE: {Config.USER_TIMEZONE}")
+            
+        logger.info("Settings loaded from database successfully")
+        
+    except Exception as e:
+        logger.warning(f"Could not load settings from database: {e}")
+        logger.info("Using default configuration values")
+
+
 if __name__ == '__main__':
     # Create required directories
     import os
     os.makedirs(Config.LOG_PATH, exist_ok=True)
     os.makedirs(os.path.dirname(Config.DATABASE_PATH), exist_ok=True)
+    
+    # Load settings from database
+    load_settings_from_database()
     
     # Validate configuration
     config_errors = Config.validate()
