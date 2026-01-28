@@ -328,17 +328,46 @@ class DatabaseManager:
             session.close()
     
     def save_price_history(self, price: float, source: str = None) -> bool:
-        """Save a price history entry (every other scrape)"""
+        """
+        Save a price history entry with safety buffer.
+        Only saves if price moved > $0.05 OR 1 hour has passed since last entry.
+        """
         session = self.get_session()
         try:
-            price_history = PriceHistory(
-                price=price,
-                source=source
-            )
+            # Get the most recent price history entry
+            last_entry = session.query(PriceHistory).order_by(
+                PriceHistory.timestamp.desc()
+            ).first()
             
-            session.add(price_history)
-            session.commit()
-            logger.debug(f"Saved price history: ${price:.2f} from {source}")
+            should_save = True
+            
+            if last_entry:
+                # Check time difference
+                time_diff = datetime.utcnow() - last_entry.timestamp
+                time_diff_hours = time_diff.total_seconds() / 3600
+                
+                # Check price difference
+                price_diff = abs(price - last_entry.price)
+                
+                # Safety buffer: Only save if price moved > $0.05 OR 1 hour passed
+                if time_diff_hours < 1.0 and price_diff <= 0.05:
+                    should_save = False
+                    logger.debug(
+                        f"Skipping price history update: "
+                        f"Price change ${price_diff:.2f} <= $0.05 and "
+                        f"Time {time_diff_hours:.2f}h < 1h"
+                    )
+            
+            if should_save:
+                price_history = PriceHistory(
+                    price=price,
+                    source=source
+                )
+                
+                session.add(price_history)
+                session.commit()
+                logger.info(f"Saved price history: ${price:.2f} from {source}")
+            
             return True
             
         except Exception as e:
