@@ -3,7 +3,7 @@ SuperNinja Silver Deal Scanner - Main Flask Application
 Web interface and API endpoints
 """
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for
+from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
 import logging
 from datetime import datetime, timedelta
 
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Import configuration and modules AFTER logging is configured
 from config import Config
 app.config.from_object(Config)
+app.secret_key = Config.SECRET_KEY
 
 from modules.spot_price import SilverSpotPrice
 from modules.ebay_api import eBayAPI
@@ -111,12 +112,14 @@ def index():
                              recent_deals=recent_deals,
                              last_scan=last_scan,
                              is_scanning=is_scanning,
-                             scan_error=scan_state['scan_error'])
+                             scan_error=scan_state['scan_error'],
+                             config=Config)
     
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         return render_template('index.html',
-                             error=str(e))
+                             error=str(e),
+                             config=Config)
 
 @app.route('/api/price')
 def api_price():
@@ -280,9 +283,60 @@ def api_scan_status():
         }
     })
 
-@app.route('/settings')
+@app.route('/settings', methods=['GET', 'POST'])
 def settings():
     """Settings page"""
+    if request.method == 'POST':
+        try:
+            # Parse form data
+            threshold_percentage = request.form.get('threshold_percentage', type=float)
+            scan_interval = request.form.get('scan_interval', type=int)
+            min_seller_feedback = request.form.get('min_seller_feedback', type=float)
+            user_timezone = request.form.get('user_timezone', type=str)
+            enable_email = request.form.get('enable_email', type=str)
+            email_to = request.form.get('email_to', type=str)
+            
+            # Update configuration in memory and persist to database
+            if threshold_percentage is not None:
+                Config.DEAL_THRESHOLD_PERCENTAGE = threshold_percentage
+                db_manager.save_setting('DEAL_THRESHOLD_PERCENTAGE', str(threshold_percentage))
+                logger.info(f"Threshold updated to {threshold_percentage}%")
+                
+            if scan_interval is not None:
+                Config.SCAN_INTERVAL_MINUTES = scan_interval
+                db_manager.save_setting('SCAN_INTERVAL_MINUTES', str(scan_interval))
+                logger.info(f"Scan interval updated to {scan_interval} minutes")
+                
+            if min_seller_feedback is not None:
+                Config.MIN_SELLER_FEEDBACK = min_seller_feedback
+                db_manager.save_setting('MIN_SELLER_FEEDBACK', str(min_seller_feedback))
+                logger.info(f"Min seller feedback updated to {min_seller_feedback}%")
+                
+            if user_timezone:
+                Config.USER_TIMEZONE = user_timezone
+                db_manager.save_setting('USER_TIMEZONE', user_timezone)
+                logger.info(f"Timezone updated to {user_timezone}")
+            
+            if enable_email:
+                Config.ENABLE_EMAIL_NOTIFICATIONS = enable_email.lower() == 'true'
+                db_manager.save_setting('ENABLE_EMAIL_NOTIFICATIONS', enable_email)
+                logger.info(f"Email notifications {'enabled' if Config.ENABLE_EMAIL_NOTIFICATIONS else 'disabled'}")
+            
+            if email_to:
+                Config.EMAIL_TO = email_to
+                db_manager.save_setting('EMAIL_TO', email_to)
+                logger.info(f"Notification email updated to {email_to}")
+            
+            # Flash message and redirect
+            flash('Settings saved successfully!', 'success')
+            return redirect('/settings')
+            
+        except Exception as e:
+            logger.error(f"Error saving settings: {e}")
+            flash(f'Error saving settings: {str(e)}', 'error')
+            return redirect('/settings')
+    
+    # GET request - render settings page
     return render_template('settings.html', config=Config)
 
 @app.route('/api/settings', methods=['POST'])
