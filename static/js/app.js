@@ -371,7 +371,7 @@ document.addEventListener('DOMContentLoaded', function() {
     fetchDeals();
     
     // Set up periodic updates
-    // setInterval(fetchPriceInfo, 30000); // Disabled - only fetch on scan trigger
+    setInterval(fetchPriceInfo, 30000); // Update price every 30 seconds
     setInterval(fetchScanStatus, 15000); // Update scan status every 15 seconds
     setInterval(fetchDeals, 60000); // Update deals every minute
     setInterval(updateTimeAgo, 1000); // Update timeago displays every second

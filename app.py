@@ -124,22 +124,12 @@ def api_price():
             'error': str(e)
         }), 500
 
-@app.route('/api/scan', methods=['POST'])
-def api_scan():
-    """API endpoint to trigger a scan"""
+def run_background_scan():
+    """Background thread function to perform scan"""
     global scan_state
     
-    if scan_state['is_scanning']:
-        return jsonify({
-            'success': False,
-            'error': 'Scan already in progress'
-        }), 400
-    
     try:
-        scan_state['is_scanning'] = True
-        scan_state['scan_error'] = None
-        
-        logger.info("Manual scan triggered via API")
+        logger.info("Background scan started")
         
         # Perform scan
         deals = deal_scanner.perform_scan()
@@ -172,21 +162,54 @@ def api_scan():
         scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
         scan_state['is_scanning'] = False
         
-        logger.info(f"Scan complete: {len(deals)} deals found, {saved_count} saved to database")
+        logger.info(f"Background scan complete: {len(deals)} deals found, {saved_count} saved to database")
         
+    except Exception as e:
+        logger.error(f"Error during background scan: {e}")
+        scan_state['is_scanning'] = False
+        scan_state['scan_error'] = str(e)
+
+
+@app.route('/api/scan', methods=['POST'])
+def api_scan():
+    """API endpoint to trigger a scan - runs in background thread"""
+    global scan_state
+    
+    if scan_state['is_scanning']:
+        return jsonify({
+            'success': False,
+            'error': 'Scan already in progress'
+        }), 400
+    
+    try:
+        scan_state['is_scanning'] = True
+        scan_state['scan_error'] = None
+        
+        logger.info("Manual scan triggered via API - starting background thread")
+        
+        # Start scan in background thread
+        import threading
+        scan_thread = threading.Thread(target=run_background_scan, daemon=True)
+        scan_thread.start()
+        
+        # Return immediately without waiting for scan to complete
         return jsonify({
             'success': True,
+            'message': 'Scan started in background',
             'data': {
-                'deals_found': len(deals),
-                'deals_saved': saved_count,
-                'summary': summary
+                'status': 'running',
+                'message': 'Scan is running in the background. Check status with /api/scan/status'
             }
         })
     
     except Exception as e:
-        logger.error(f"Error during scan: {e}")
+        logger.error(f"Error starting scan: {e}")
         scan_state['is_scanning'] = False
         scan_state['scan_error'] = str(e)
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
         
         return jsonify({
             'success': False,
@@ -242,6 +265,9 @@ def api_settings():
             Config.SCAN_INTERVAL_MINUTES = int(data['scan_interval'])
         if 'min_seller_feedback' in data:
             Config.MIN_SELLER_FEEDBACK = float(data['min_seller_feedback'])
+        if 'user_timezone' in data:
+            Config.USER_TIMEZONE = str(data['user_timezone'])
+            logger.info(f"User timezone updated to: {Config.USER_TIMEZONE}")
         
         logger.info("Settings updated successfully")
         
