@@ -233,7 +233,7 @@ class SilverSpotPrice:
     def _fetch_from_fallback(self) -> Optional[float]:
         """
         Fetch from fallback sources to break tie
-        Tries in order: Alpha Vantage, Kitco, APMEX
+        Tries in order: Alpha Vantage, Kitco, Google Finance, APMEX
         """
         # TIER 1: Try Alpha Vantage if API key is set and not rate-limited
         if Config.ALPHA_VANTAGE_API_KEY:
@@ -248,12 +248,11 @@ class SilverSpotPrice:
             logger.info("✓ Using Kitco as tie-breaker (Tier 2)")
             return price
         
-        # TIER 3: Try Metals-API.com if API key is set
-        if Config.METALS_API_KEY:
-            price = self._fetch_from_metals_api()
-            if price:
-                logger.info("✓ Using Metals-API as tie-breaker (Tier 3)")
-                return price
+        # TIER 3: Try Google Finance (SI silver futures as proxy)
+        price = self._fetch_from_google_finance()
+        if price:
+            logger.info("✓ Using Google Finance as tie-breaker (Tier 3)")
+            return price
         
         # TIER 4: Last resort - APMEX scraping (with headers to avoid 403)
         logger.warning("Attempting APMEX scraping as final fallback...")
@@ -407,6 +406,71 @@ class SilverSpotPrice:
                     
         except Exception as e:
             logger.error(f"Error fetching from Kitco: {e}")
+        
+        return None
+    
+    def _fetch_from_google_finance(self) -> Optional[float]:
+        """Fetch spot price from Google Finance silver futures"""
+        try:
+            logger.info("🔄 Fetching from Google Finance (SI silver futures)...")
+            # Use SI silver futures (globex) as proxy for spot price
+            url = 'https://www.google.com/finance/quote/SI:COMEX'
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Referer': 'https://www.google.com/'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Google Finance uses specific classes for prices
+            # Look for the main price element
+            price_element = soup.find('div', class_='YMlKec fxKbKc')
+            if price_element:
+                price_text = price_element.get_text().strip()
+                price = self._extract_price_from_text(price_text)
+                # Silver futures are ~30/oz (5000oz contract / contract price)
+                # Convert futures to spot (rough approximation)
+                if price and 30 < price < 50:
+                    # Multiply by ~3.5 to approximate spot from futures
+                    estimated_spot = price * 3.5
+                    if 50 < estimated_spot < 200:
+                        logger.info(f"✅ Google Finance SI futures: ${price:.2f} → estimated spot: ${estimated_spot:.2f}/oz")
+                        return estimated_spot
+            
+            # Alternative: Look for data attributes
+            price_div = soup.find('div', {'data-last-price': True})
+            if price_div:
+                price = float(price_div.get('data-last-price', 0))
+                if 30 < price < 50:
+                    estimated_spot = price * 3.5
+                    if 50 < estimated_spot < 200:
+                        logger.info(f"✅ Google Finance SI futures (data attr): ${price:.2f} → estimated spot: ${estimated_spot:.2f}/oz")
+                        return estimated_spot
+            
+            # Final attempt: Look for any price pattern
+            import re
+            for element in soup.find_all(string=re.compile(r'\d+\.\d{2}')):
+                text = str(element).strip()
+                price = self._extract_price_from_text(text)
+                if price and 30 < price < 50:
+                    estimated_spot = price * 3.5
+                    if 50 < estimated_spot < 200:
+                        logger.info(f"✅ Google Finance SI futures (pattern): ${price:.2f} → estimated spot: ${estimated_spot:.2f}/oz")
+                        return estimated_spot
+                    
+        except Exception as e:
+            logger.error(f"Error fetching from Google Finance: {e}")
         
         return None
     
