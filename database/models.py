@@ -473,11 +473,11 @@ class DatabaseManager:
         session = self.get_session()
         try:
             last_scan = session.query(ScanHistory).order_by(
-                ScanHistory.scan_time.desc()
+                ScanHistory.start_time.desc()
             ).first()
             
             if last_scan:
-                logger.debug(f"Last scan from database: {last_scan.scan_id} at {last_scan.scan_time}")
+                logger.debug(f"Last scan from database: {last_scan.scan_id} at {last_scan.start_time}")
             else:
                 logger.debug("No scan history records found in database")
             
