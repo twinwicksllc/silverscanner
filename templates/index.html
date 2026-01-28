@@ -80,15 +80,27 @@
                 <div class="value">
                     {% if is_scanning %}
                         <span class="loading"></span>
+                        Scanning
+                    {% elif last_scan %}
+                        ✓ Ready
                     {% else %}
-                        ✓
+                        ⏳ Ready
                     {% endif %}
                 </div>
                 <div class="subtext">
                     {% if is_scanning %}
-                        Scanning...
+                        In progress...
+                    {% elif last_scan %}
+                        {% if last_scan.duration %}
+                            Last scan: {{ last_scan.duration }}
+                        {% else %}
+                            Last scan: {{ last_scan.start_time }}
+                        {% endif %}
+                        {% if last_scan.total_listings_scanned %}
+                            <br>{{ last_scan.total_listings_scanned }} listings checked
+                        {% endif %}
                     {% else %}
-                        Ready
+                        Ready to scan
                     {% endif %}
                 </div>
             </div>
@@ -157,20 +169,26 @@
         <div id="deals-section" class="deals-section" style="{% if not recent_deals %}display: none;{% endif %}">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                 <h2>Recent Silver Deals</h2>
-                <button class="btn btn-secondary" onclick="fetchDeals()">
-                    🔄 Refresh
-                </button>
+                <div>
+                    <button class="btn btn-secondary" onclick="fetchDeals()">
+                        🔄 Refresh
+                    </button>
+                    <button class="btn btn-secondary" onclick="showHiddenDeals()">
+                        📁 Archived
+                    </button>
+                </div>
             </div>
 
             <table class="deals-table">
                 <thead>
                     <tr>
-                        <th style="width: 30%;">Item</th>
-                        <th style="width: 15%;">Price</th>
-                        <th style="width: 10%;">Silver Weight</th>
-                        <th style="width: 15%;">Cost per Ounce</th>
-                        <th style="width: 15%;">Seller</th>
-                        <th style="width: 15%;">Details</th>
+                        <th style="width: 28%;">Item</th>
+                        <th style="width: 14%;">Price</th>
+                        <th style="width: 9%;">Silver Weight</th>
+                        <th style="width: 14%;">Cost per Ounce</th>
+                        <th style="width: 14%;">Seller</th>
+                        <th style="width: 14%;">Details</th>
+                        <th style="width: 7%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody id="deals-table-body">
@@ -222,6 +240,26 @@
                             {% endif %}
                             <br>
                             <small>Listed {{ deal.time_since_listed }}</small>
+                        </td>
+                        <td style="text-align: center;">
+                            <button 
+                                class="hide-btn" 
+                                onclick="hideDeal('{{ deal.item_id }}', this)"
+                                title="Hide this deal"
+                                style="
+                                    background: none;
+                                    border: none;
+                                    cursor: pointer;
+                                    font-size: 1.2em;
+                                    padding: 5px;
+                                    color: #95a5a6;
+                                    transition: color 0.2s;
+                                "
+                                onmouseover="this.style.color='#e74c3c'"
+                                onmouseout="this.style.color='#95a5a6'"
+                            >
+                                🙈
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -332,6 +370,164 @@
             // Refresh price history every 5 minutes
             setInterval(loadPriceHistory, 300000);
         });
+
+        // Hide deal function
+        function hideDeal(itemId, button) {
+            if (!confirm('Hide this deal from the dashboard?')) {
+                return;
+            }
+            
+            fetch('/api/deal/hide', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ item_id: itemId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Find the row and remove it with animation
+                    const row = button.closest('tr');
+                    row.style.transition = 'opacity 0.3s';
+                    row.style.opacity = '0';
+                    setTimeout(() => {
+                        row.remove();
+                    }, 300);
+                } else {
+                    alert('Error hiding deal: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error hiding deal:', error);
+                alert('Error hiding deal: ' + error);
+            });
+        }
+
+        // Show hidden deals modal
+        function showHiddenDeals() {
+            fetch('/api/deals/hidden')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success && data.deals.length > 0) {
+                        let html = `
+                            <div id="hidden-deals-modal" style="
+                                position: fixed;
+                                top: 0;
+                                left: 0;
+                                width: 100%;
+                                height: 100%;
+                                background: rgba(0,0,0,0.5);
+                                display: flex;
+                                justify-content: center;
+                                align-items: center;
+                                z-index: 10000;
+                            ">
+                                <div style="
+                                    background: white;
+                                    padding: 30px;
+                                    border-radius: 10px;
+                                    max-width: 900px;
+                                    max-height: 80vh;
+                                    overflow-y: auto;
+                                    width: 95%;
+                                ">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                        <h2>📁 Archived Deals (${data.deals.length})</h2>
+                                        <button onclick="closeHiddenDealsModal()" style="
+                                            background: #e74c3c;
+                                            color: white;
+                                            border: none;
+                                            padding: 10px 20px;
+                                            border-radius: 5px;
+                                            cursor: pointer;
+                                        ">Close</button>
+                                    </div>
+                                    <table style="width: 100%; border-collapse: collapse;">
+                                        <thead>
+                                            <tr style="background: #34495e; color: white;">
+                                                <th style="padding: 10px; text-align: left;">Item</th>
+                                                <th style="padding: 10px; text-align: left;">Price</th>
+                                                <th style="padding: 10px; text-align: left;">Discount</th>
+                                                <th style="padding: 10px; text-align: left;">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                        `;
+                        
+                        data.deals.forEach(deal => {
+                            html += `
+                                <tr style="border-bottom: 1px solid #ecf0f1;">
+                                    <td style="padding: 10px;">
+                                        <a href="${deal.item_url}" target="_blank" style="color: #3498db; text-decoration: none;">
+                                            ${deal.title.substring(0, 50)}...
+                                        </a>
+                                    </td>
+                                    <td style="padding: 10px;">$${deal.total_cost.toFixed(2)}</td>
+                                    <td style="padding: 10px;">${deal.discount_percent.toFixed(1)}% off</td>
+                                    <td style="padding: 10px;">
+                                        <button onclick="unhideDeal('${deal.item_id}')" style="
+                                            background: #27ae60;
+                                            color: white;
+                                            border: none;
+                                            padding: 5px 10px;
+                                            border-radius: 3px;
+                                            cursor: pointer;
+                                        ">🔄 Restore</button>
+                                    </td>
+                                </tr>
+                            `;
+                        });
+                        
+                        html += `
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        `;
+                        
+                        document.body.insertAdjacentHTML('beforeend', html);
+                    } else {
+                        alert('No archived deals found.');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching hidden deals:', error);
+                    alert('Error fetching hidden deals: ' + error);
+                });
+        }
+
+        // Close hidden deals modal
+        function closeHiddenDealsModal() {
+            const modal = document.getElementById('hidden-deals-modal');
+            if (modal) {
+                modal.remove();
+            }
+        }
+
+        // Unhide deal function
+        function unhideDeal(itemId) {
+            fetch('/api/deal/unhide', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ item_id: itemId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Refresh the page to show restored deal
+                    location.reload();
+                } else {
+                    alert('Error restoring deal: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error restoring deal:', error);
+                alert('Error restoring deal: ' + error);
+            });
+        }
     </script>
 </body>
 </html>

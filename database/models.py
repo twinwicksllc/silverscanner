@@ -56,6 +56,8 @@ class Deal(Base):
     qualified_at = Column(DateTime, default=datetime.utcnow)
     confidence = Column(Float)
     is_valid = Column(Boolean, default=True)
+    is_hidden = Column(Boolean, default=False)  # User manually hidden/archived
+    hidden_at = Column(DateTime)  # When the deal was hidden
     
     def __repr__(self):
         return f"<Deal {self.title[:50]}... ${self.cost_per_oz:.2f}/oz>"
@@ -235,7 +237,8 @@ class DatabaseManager:
         try:
             history = ScanHistory(
                 scan_id=scan_data['scan_id'],
-                start_time=datetime.utcnow(),
+                start_time=scan_data.get('start_time', datetime.utcnow()),
+                end_time=scan_data.get('end_time'),
                 spot_price=scan_data.get('spot_price'),
                 threshold=scan_data.get('threshold'),
                 total_listings_scanned=scan_data.get('total_listings', 0),
@@ -263,7 +266,9 @@ class DatabaseManager:
         """Get recent deals from database"""
         session = self.get_session()
         try:
-            deals = session.query(Deal).order_by(
+            deals = session.query(Deal).filter(
+                Deal.is_hidden == False
+            ).order_by(
                 Deal.qualified_at.desc()
             ).limit(limit).all()
             
@@ -482,6 +487,80 @@ class DatabaseManager:
         finally:
             session.close()
     
+    def hide_deal(self, item_id: str) -> bool:
+        """Hide a deal (archive it from view)"""
+        session = self.get_session()
+        try:
+            deal = session.query(Deal).filter_by(item_id=item_id).first()
+            if deal:
+                deal.is_hidden = True
+                deal.hidden_at = datetime.utcnow()
+                session.commit()
+                logger.info(f"Deal hidden: {item_id}")
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error hiding deal: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def unhide_deal(self, item_id: str) -> bool:
+        """Unhide a deal (restore it to view)"""
+        session = self.get_session()
+        try:
+            deal = session.query(Deal).filter_by(item_id=item_id).first()
+            if deal:
+                deal.is_hidden = False
+                deal.hidden_at = None
+                session.commit()
+                logger.info(f"Deal unhidden: {item_id}")
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error unhiding deal: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def get_hidden_deals(self, limit: int = 50) -> list:
+        """Get hidden/archived deals"""
+        session = self.get_session()
+        try:
+            deals = session.query(Deal).filter(
+                Deal.is_hidden == True
+            ).order_by(
+                Deal.hidden_at.desc()
+            ).limit(limit).all()
+            
+            return [self._deal_to_dict(deal) for deal in deals]
+        except Exception as e:
+            logger.error(f"Error getting hidden deals: {e}")
+            return []
+        finally:
+            session.close()
+    
+    def cleanup_expired_deals(self) -> int:
+        """Remove deals that are no longer active on eBay (older than 7 days)"""
+        session = self.get_session()
+        try:
+            cutoff = datetime.utcnow() - timedelta(days=7)
+            expired_deals = session.query(Deal).filter(
+                Deal.qualified_at < cutoff
+            ).delete()
+            
+            session.commit()
+            logger.info(f"Cleaned up {expired_deals} expired deals")
+            return expired_deals
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error cleaning up expired deals: {e}")
+            return 0
+        finally:
+            session.close()
+    
     def get_last_scan(self):
         """Get the most recent scan record from scan_history table"""
         session = self.get_session()
@@ -491,6 +570,25 @@ class DatabaseManager:
             ).first()
             
             if last_scan:
+                # Calculate duration if end_time is available
+                duration = None
+                if last_scan.end_time:
+                    diff = last_scan.end_time - last_scan.start_time
+                    seconds = diff.total_seconds()
+                    if seconds < 60:
+                        duration = f"{int(seconds)}s"
+                    elif seconds < 3600:
+                        minutes = int(seconds / 60)
+                        seconds = int(seconds % 60)
+                        duration = f"{minutes}m {seconds}s"
+                    else:
+                        hours = int(seconds / 3600)
+                        minutes = int((seconds % 3600) / 60)
+                        duration = f"{hours}h {minutes}m"
+                    
+                    # Add duration to the object
+                    last_scan.duration = duration
+                
                 logger.debug(f"Last scan from database: {last_scan.scan_id} at {last_scan.start_time}")
             else:
                 logger.debug("No scan history records found in database")

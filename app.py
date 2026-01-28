@@ -157,6 +157,7 @@ def run_background_scan():
     
     try:
         logger.info("Background scan started")
+        scan_start_time = datetime.now()
         
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
         logger.info("Fetching fresh spot price for scan...")
@@ -172,11 +173,14 @@ def run_background_scan():
             if db_manager.save_deal(deal):
                 saved_count += 1
         
-        # Save scan history
+        # Save scan history with duration
+        scan_end_time = datetime.now()
         summary = deal_scanner.get_deal_summary()
         scan_id = summary.get('scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
         
         db_manager.save_scan_history({
+            'start_time': scan_start_time,
+            'end_time': scan_end_time,
             'scan_id': scan_id,
             'spot_price': summary.get('spot_price', 0),
             'threshold': summary.get('threshold', 0),
@@ -376,6 +380,110 @@ def api_settings():
     
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/deal/hide', methods=['POST'])
+def api_hide_deal():
+    """Hide/archive a deal"""
+    try:
+        data = request.json
+        item_id = data.get('item_id')
+        
+        if not item_id:
+            return jsonify({
+                'success': False,
+                'error': 'item_id is required'
+            }), 400
+        
+        success = db_manager.hide_deal(item_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Deal hidden successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Deal not found'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error hiding deal: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/deal/unhide', methods=['POST'])
+def api_unhide_deal():
+    """Unhide/restore a deal"""
+    try:
+        data = request.json
+        item_id = data.get('item_id')
+        
+        if not item_id:
+            return jsonify({
+                'success': False,
+                'error': 'item_id is required'
+            }), 400
+        
+        success = db_manager.unhide_deal(item_id)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': 'Deal restored successfully'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'Deal not found'
+            }), 404
+            
+    except Exception as e:
+        logger.error(f"Error unhiding deal: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/deals/hidden')
+def api_hidden_deals():
+    """Get all hidden/archived deals"""
+    try:
+        limit = request.args.get('limit', 50, type=int)
+        hidden_deals = db_manager.get_hidden_deals(limit)
+        
+        return jsonify({
+            'success': True,
+            'deals': hidden_deals
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting hidden deals: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/deal/cleanup', methods=['POST'])
+def api_cleanup_deals():
+    """Clean up expired deals (older than 7 days)"""
+    try:
+        cleaned_count = db_manager.cleanup_expired_deals()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Cleaned up {cleaned_count} expired deals',
+            'count': cleaned_count
+        })
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up deals: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
