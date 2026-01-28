@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SuperNinja Silver Deal Scanner</title>
+    <title>TeckStart Silver Scanner</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
 </head>
@@ -12,7 +12,7 @@
     <header>
         <div class="container">
             <div class="logo">
-                🥈 SuperNinja <span>Silver Scanner</span>
+                🥈 TeckStart <span>Silver Scanner</span>
             </div>
             <nav>
                 <ul>
@@ -118,6 +118,8 @@
                 <span id="status-text">
                     {% if is_scanning %}
                         Scanning eBay for deals...
+                    {% elif scan_details %}
+                        ✓ Ready (Last scan checked {{ scan_details.items_scanned|default(0) }} items{% if scan_details.duration %} in {{ scan_details.duration }}{% endif %})
                     {% else %}
                         Ready to scan
                     {% endif %}
@@ -219,7 +221,7 @@
                                 {{ deal.condition }}
                             {% endif %}
                             <br>
-                            <small>{{ deal.time_since_listed }}</small>
+                            <small>Listed {{ deal.time_since_listed }}</small>
                         </td>
                     </tr>
                     {% endfor %}
@@ -231,7 +233,7 @@
     <!-- Footer -->
     <footer>
         <div class="container">
-            <p>SuperNinja Silver Deal Scanner &copy; 2024 | Automatically finds undervalued silver on eBay</p>
+            <p>TeckStart Silver Scanner &copy; 2024 | Automatically finds undervalued silver on eBay</p>
         </div>
     </footer>
 

@@ -106,10 +106,25 @@ def index():
         last_scan = last_scan_record.start_time.isoformat() if last_scan_record else None
         is_scanning = scan_state['is_scanning']
         
+        # Prepare scan details for display
+        scan_details = None
+        if last_scan_record:
+            duration = None
+            if last_scan_record.end_time and last_scan_record.start_time:
+                duration_seconds = (last_scan_record.end_time - last_scan_record.start_time).total_seconds()
+                duration = f"{duration_seconds:.0f}s"
+            
+            scan_details = {
+                'items_scanned': last_scan_record.total_listings_scanned or 0,
+                'duration': duration,
+                'deals_found': last_scan_record.qualified_deals_found or 0
+            }
+        
         return render_template('index.html',
                              price_info=price_info,
                              recent_deals=recent_deals,
                              last_scan=last_scan,
+                             scan_details=scan_details,
                              is_scanning=is_scanning,
                              scan_error=scan_state['scan_error'])
     
