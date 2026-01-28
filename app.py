@@ -110,9 +110,23 @@ def index():
 
 @app.route('/api/price')
 def api_price():
-    """API endpoint for current spot price"""
+    """API endpoint for current spot price - returns database record only"""
     try:
-        price_info = spot_price.get_price_info()
+        # Get most recent price from database (no live fetch)
+        latest_price = db_manager.get_latest_price()
+        
+        if latest_price:
+            price_info = {
+                'price': latest_price.price,
+                'source': latest_price.source,
+                'timestamp': latest_price.timestamp.isoformat() if latest_price.timestamp else None,
+                'verified': True
+            }
+        else:
+            # Fallback to cached price if no database record
+            price_info = spot_price.get_price_info()
+            price_info['verified'] = False
+        
         return jsonify({
             'success': True,
             'data': price_info
@@ -130,6 +144,11 @@ def run_background_scan():
     
     try:
         logger.info("Background scan started")
+        
+        # Fetch fresh spot price at the START of scan (only fetch when scanning)
+        logger.info("Fetching fresh spot price for scan...")
+        spot_price.get_price_info()
+        logger.info("Spot price fetch complete")
         
         # Perform scan
         deals = deal_scanner.perform_scan()

@@ -61,5 +61,5 @@ services:
 crons:
   - name: automated-scan
     schedule: "0 */4 * * *"  # Run every 4 hours
-    command: python -c "from app import deal_scanner; deal_scanner.perform_scan()"
+    command: curl -X POST http://localhost:5000/api/scan
     service: silver-scanner
