@@ -391,3 +391,24 @@ class DatabaseManager:
             return 0
         finally:
             session.close()
+    
+    def get_latest_price(self):
+        """Get the most recent price record from price_history table"""
+        session = self.get_session()
+        try:
+            latest_price = session.query(PriceHistory).order_by(
+                PriceHistory.timestamp.desc()
+            ).first()
+            
+            if latest_price:
+                logger.debug(f"Latest price from database: ${latest_price.price}/oz from {latest_price.source}")
+            else:
+                logger.debug("No price history records found in database")
+            
+            return latest_price
+            
+        except Exception as e:
+            logger.error(f"Error getting latest price from database: {e}")
+            return None
+        finally:
+            session.close()
