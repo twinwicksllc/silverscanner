@@ -294,32 +294,6 @@ def api_test_ebay():
 def not_found(error):
     return render_template('404.html'), 404
 
-@app.errorhandler(500)
-def server_error(error):
-    logger.error(f"Server error: {error}")
-    return render_template('500.html'), 500
-
-if __name__ == '__main__':
-    # Create required directories
-    import os
-    os.makedirs(Config.LOG_PATH, exist_ok=True)
-    os.makedirs(os.path.dirname(Config.DATABASE_PATH), exist_ok=True)
-    
-    # Validate configuration
-    config_errors = Config.validate()
-    if config_errors:
-        logger.warning("Configuration validation warnings:")
-        for error in config_errors:
-            logger.warning(f"  - {error}")
-    
-    # Start digest scheduler
-    try:
-        digest_scheduler.start()
-        logger.info("Digest scheduler started successfully")
-    except Exception as e:
-        logger.error(f"Failed to start digest scheduler: {e}")
-
-
 @app.route('/admin/migrate/time_listed', methods=['POST'])
 def run_migration():
     """
@@ -415,11 +389,33 @@ def run_migration():
             'success': False,
             'error': str(e)
         }), 500
+
+@app.errorhandler(500)
+def server_error(error):
+    logger.error(f"Server error: {error}")
+    return render_template('500.html'), 500
+
+if __name__ == '__main__':
+    # Create required directories
+    import os
+    os.makedirs(Config.LOG_PATH, exist_ok=True)
+    os.makedirs(os.path.dirname(Config.DATABASE_PATH), exist_ok=True)
     
-    # Run the app
-    logger.info(f"Starting SuperNinja Silver Deal Scanner on port {Config.PORT}")
+    # Validate configuration
+    config_errors = Config.validate()
+    if config_errors:
+        logger.warning("Configuration validation warnings:")
+        for error in config_errors:
+            logger.warning(f"  - {error}")
+    
+    # Start digest scheduler
     try:
-        app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
+        digest_scheduler.start()
+        logger.info("Digest scheduler started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start digest scheduler: {e}")
+
+
     finally:
         # Stop scheduler on shutdown
         try:
