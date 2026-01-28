@@ -95,9 +95,12 @@ class Config:
         'https://sdbullion.com/silver-prices'
     ]
     
-    # Fallback API sources (used when primary sources disagree)
+    # Fallback sources (used when primary sources disagree)
+    # Alpha Vantage (API), Kitco (scraping), Google Finance (scraping)
     FALLBACK_SPOT_SOURCES = [
-        'https://www.apmex.com/spot/silver'
+        'Alpha Vantage API',
+        'https://www.kitco.com/',
+        'https://www.google.com/finance/quote/SIW00:COMEX'
     ]
     
     # API key for Alpha Vantage (free tier: 25 requests/day)

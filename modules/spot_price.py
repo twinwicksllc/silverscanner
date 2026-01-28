@@ -84,8 +84,9 @@ class SilverSpotPrice:
         fallback_price = self._fetch_from_fallback()
         
         if not fallback_price:
-            logger.warning("Fallback sources failed, using average of primary sources")
-            return self._finalize_price(avg_price, "JM Bullion + SD Bullion (unverified)")
+            logger.critical("⚠️ CRITICAL: All fallback sources failed - using unverified average")
+            logger.warning(f"Using average of JM Bullion (${jm_price:.2f}) and SD Bullion (${sd_price:.2f})")
+            return self._finalize_price(avg_price, "JM Bullion + SD Bullion (UNVERIFIED)")
         
         # Determine which primary source is closer to fallback
         jm_diff = abs(jm_price - fallback_price)
@@ -227,7 +228,7 @@ class SilverSpotPrice:
     def _fetch_from_fallback(self) -> Optional[float]:
         """
         Fetch from fallback sources to break tie (100% FREE sources only)
-        Tries in order: Alpha Vantage → Kitco → Google Finance → APMEX
+        Tries in order: Alpha Vantage → Kitco → Google Finance
         """
         # Primary Fallback: Alpha Vantage (free API with rate limits)
         if Config.ALPHA_VANTAGE_API_KEY:
@@ -248,13 +249,8 @@ class SilverSpotPrice:
             logger.info("✅ Using Google Finance as fallback")
             return price
         
-        # Final Fallback: APMEX (last resort only)
-        price = self._fetch_from_apmex()
-        if price:
-            logger.info("✅ Using APMEX as fallback (last resort)")
-            return price
-        
-        logger.error("❌ All fallback sources failed")
+        # All fallback sources failed
+        logger.critical("❌ CRITICAL: All fallback sources failed (Alpha Vantage, Kitco, Google Finance)")
         return None
     
     
@@ -373,77 +369,7 @@ class SilverSpotPrice:
         
         return None
     
-    def _fetch_from_apmex(self) -> Optional[float]:
-        """Fetch spot price from APMEX (scraping fallback) - LAST RESORT ONLY"""
-        url = 'https://www.apmex.com/silver-price'
-        try:
-            # Use session to maintain cookies
-            session = requests.Session()
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0',
-                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-                'Referer': 'https://www.google.com/'
-            }
-            
-            response = session.get(url, headers=headers, timeout=30, allow_redirects=True)
-            response.raise_for_status()
-            
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Try multiple methods to find silver price
-            # Method 1: Look for spot price in meta tags or structured data
-            price_meta = soup.find('meta', {'property': 'og:price:amount'})
-            if price_meta:
-                try:
-                    price = float(price_meta.get('content', ''))
-                    if 50 < price < 200:
-                        logger.info(f"APMEX price (meta): ${price:.2f}/oz")
-                        return price
-                except (ValueError, TypeError):
-                    pass
-            
-            # Method 2: Look for JSON-LD structured data
-            import re
-            import json
-            json_ld = soup.find('script', type='application/ld+json')
-            if json_ld:
-                try:
-                    data = json.loads(json_ld.string)
-                    if isinstance(data, dict) and 'offers' in data:
-                        price = float(data['offers'].get('price', 0))
-                        if 50 < price < 200:
-                            logger.info(f"APMEX price (JSON-LD): ${price:.2f}/oz")
-                            return price
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    pass
-            
-            # Method 3: Look for price in span/div elements
-            price_elements = soup.find_all(['span', 'div'], class_=lambda x: x and ('price' in str(x).lower() or 'spot' in str(x).lower()))
-            for elem in price_elements:
-                text = elem.get_text(strip=True)
-                price = self._extract_price_from_text(text)
-                if price and 50 < price < 200:
-                    logger.info(f"APMEX price (element): ${price:.2f}/oz")
-                    return price
-                    
-        except Exception as e:
-            logger.error(f"Error fetching from APMEX: {e}")
-        
-        return None
+    
     
     def _extract_price_from_text(self, text: str) -> Optional[float]:
         """Extract price value from text"""

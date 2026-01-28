@@ -21,18 +21,18 @@ Updated the spot price verification system to use a 100% free, reliable fallback
 - ✅ Successfully tested: $113.95/oz
 
 ### 4. Updated Fallback Chain Order
-**New Hierarchy (100% Free):**
+**New Hierarchy (100% Free - CLEAN):**
 1. **Baseline:** JM Bullion + SD Bullion (if agree within 5%, use average)
 2. **Primary Fallback:** Alpha Vantage API (free tier: 25 requests/day)
 3. **Secondary Fallback:** Kitco (when Alpha Vantage rate limited)
 4. **Tertiary Fallback:** Google Finance SIW00:COMEX (when Kitco down)
-5. **Final Fallback:** APMEX (last resort - currently blocked by bot protection)
+5. **Final Failover:** Average of JM/SD marked as UNVERIFIED (if all fallbacks fail)
 
-### 5. Enhanced APMEX Scraper
-- ✅ Added session-based requests
-- ✅ Enhanced headers with Referer
-- ✅ Multiple parsing methods (meta tags, JSON-LD, elements)
-- ⚠️ Still blocked by Cloudflare bot protection (not critical)
+### 5. Removed APMEX Entirely
+- ❌ APMEX completely removed from codebase
+- ✅ Eliminated persistent 403 Forbidden errors
+- ✅ Cleaner logs without error spam
+- ✅ Two reliable fallbacks (Kitco + Google Finance) are sufficient
 
 ## Test Results
 
@@ -61,9 +61,9 @@ Variance: $10.90 (9.96%) - Exceeds 5% threshold
 
 ### Individual Fallback Tests
 ```
-✅ Kitco: $113.90/oz - Working perfectly
-✅ Google Finance: $113.95/oz - Working perfectly
-⚠️ APMEX: 403 Forbidden - Bot protection (not critical)
+✅ Kitco: $113.52/oz - Working perfectly
+✅ Google Finance: $113.60/oz - Working perfectly
+🎉 APMEX: REMOVED - No more 403 errors!
 ```
 
 ## Files Modified
@@ -94,11 +94,12 @@ Variance: $10.90 (9.96%) - Exceeds 5% threshold
 
 ## Notes
 
-- **APMEX Status:** Currently blocked by bot protection. Not critical since Kitco and Google Finance provide reliable fallbacks.
+- **APMEX Status:** REMOVED from codebase entirely. No more 403 errors cluttering logs.
 - **Alpha Vantage:** Requires API key (free tier available). System works without it by falling back to Kitco.
 - **Price History:** Successfully recording to Supabase with verified prices.
-- **Two-Key Verification:** Working perfectly with new fallback chain.
+- **Two-Key Verification:** Working perfectly with clean fallback chain.
+- **Final Failover:** If all three fallbacks fail, system uses average of JM/SD marked as UNVERIFIED with critical warning.
 
 ## Recommendation
 
-Deploy immediately. The system is fully functional with two reliable fallback sources (Kitco and Google Finance). APMEX is only a last resort and its unavailability does not impact normal operations.
+Deploy immediately. The system is fully functional with a clean, reliable fallback chain. No more error spam from APMEX 403 blocks.
