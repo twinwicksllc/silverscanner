@@ -21,8 +21,6 @@ class SilverSpotPrice:
         self.cache_duration = timedelta(minutes=Config.SPOT_PRICE_CACHE_MINUTES)
         self.db_manager = db_manager or DatabaseManager()
         self.scrape_count = 0
-        self.alpha_vantage_last_call = None  # Track when we last called Alpha Vantage
-        self.alpha_vantage_cache_duration = timedelta(minutes=Config.ALPHA_VANTAGE_RATE_LIMIT_MINUTES)
         
     def get_spot_price(self, force_refresh: bool = False) -> Optional[float]:
         """
@@ -47,10 +45,6 @@ class SilverSpotPrice:
             if datetime.now() - cached_data['timestamp'] < self.cache_duration:
                 logger.info(f"Using cached spot price: ${cached_data['price']:.2f}/oz")
                 return cached_data['price']
-        
-        # Force refresh - bypass cache completely
-        if force_refresh:
-            logger.info("FORCE REFRESH: Bypassing cache and fetching fresh price")
         
         # Step 1: Fetch from primary sources
         logger.info("Fetching from primary sources (JM Bullion, SD Bullion)...")
@@ -123,11 +117,11 @@ class SilverSpotPrice:
         
         logger.info(f"Final verified price: ${price:.2f}/oz from {source}")
         
-        # Record price history (every fetch for immediate verification)
+        # Record price history every other scrape
         self.scrape_count += 1
-        self.db_manager.save_price_history(price, source)
-        self.db_manager.cleanup_old_price_history(days=30)
-        logger.info(f"💾 Price history recorded: ${price:.2f}/oz (source: {source})")
+        if self.scrape_count % 2 == 0:
+            self.db_manager.save_price_history(price, source)
+            self.db_manager.cleanup_old_price_history(days=30)
         
         return price
     
@@ -232,65 +226,42 @@ class SilverSpotPrice:
     
     def _fetch_from_fallback(self) -> Optional[float]:
         """
-        Fetch from fallback sources to break tie
-        Tries in order: Alpha Vantage, Kitco, Google Finance, APMEX
+        Fetch from fallback sources to break tie (100% FREE sources only)
+        Tries in order: Alpha Vantage → Kitco → Google Finance → APMEX
         """
-        # TIER 1: Try Alpha Vantage if API key is set and not rate-limited
+        # Primary Fallback: Alpha Vantage (free API with rate limits)
         if Config.ALPHA_VANTAGE_API_KEY:
             price = self._fetch_from_alpha_vantage()
             if price:
-                logger.info("✓ Using Alpha Vantage as tie-breaker (Tier 1)")
+                logger.info("✅ Using Alpha Vantage as fallback")
                 return price
         
-        # TIER 2: Try Kitco (reliable precious metals source)
+        # Secondary Fallback: Kitco (when Alpha Vantage rate limited)
         price = self._fetch_from_kitco()
         if price:
-            logger.info("✓ Using Kitco as tie-breaker (Tier 2)")
+            logger.info("✅ Using Kitco as fallback")
             return price
         
-        # TIER 3: Try Google Finance (SI silver futures as proxy)
-        price = self._fetch_from_google_finance()
+        # Tertiary Fallback: Google Finance (when Kitco is down)
+        price = self._fetch_from_google()
         if price:
-            logger.info("✓ Using Google Finance as tie-breaker (Tier 3)")
+            logger.info("✅ Using Google Finance as fallback")
             return price
         
-        # TIER 4: Last resort - APMEX scraping (with headers to avoid 403)
-        logger.warning("Attempting APMEX scraping as final fallback...")
-        return self._fetch_from_apmex()
-    
-    def _fetch_from_metals_api(self) -> Optional[float]:
-        """Fetch from Metals-API.com (requires API key)"""
-        try:
-            url = f"https://metals-api.com/api/latest?access_key={Config.METALS_API_KEY}&base=USD&symbols=XAG"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            if data.get('success') and 'rates' in data and 'XAG' in data['rates']:
-                # XAG is in troy ounces, rate is USD per ounce
-                xag_rate = data['rates']['XAG']
-                # Convert from XAG (ounces per USD) to USD per ounce
-                price = 1 / xag_rate if xag_rate > 0 else None
-                if price and 50 < price < 200:
-                    logger.info(f"Metals-API price: ${price:.2f}/oz")
-                    return price
-                    
-        except Exception as e:
-            logger.error(f"Error fetching from Metals-API: {e}")
+        # Final Fallback: APMEX (last resort only)
+        price = self._fetch_from_apmex()
+        if price:
+            logger.info("✅ Using APMEX as fallback (last resort)")
+            return price
         
+        logger.error("❌ All fallback sources failed")
         return None
     
+    
+    
     def _fetch_from_alpha_vantage(self) -> Optional[float]:
-        """Fetch from Alpha Vantage (requires API key, rate limited to 1x/hour)"""
-        # Check rate limiting
-        if self.alpha_vantage_last_call:
-            time_since_last_call = datetime.now() - self.alpha_vantage_last_call
-            if time_since_last_call < self.alpha_vantage_cache_duration:
-                logger.warning(f"Alpha Vantage rate limited. Last call: {time_since_last_call.total_seconds()/60:.1f} minutes ago (min: {Config.ALPHA_VANTAGE_RATE_LIMIT_MINUTES} minutes)")
-                return None
-        
+        """Fetch from Alpha Vantage (requires API key)"""
         try:
-            logger.info("🔄 FETCHING FROM ALPHA VANTAGE (rate limited to 1x/hour)")
             url = f"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=XAG&to_currency=USD&apikey={Config.ALPHA_VANTAGE_API_KEY}"
             response = requests.get(url, timeout=10)
             response.raise_for_status()
@@ -300,23 +271,17 @@ class SilverSpotPrice:
                 rate_data = data['Realtime Currency Exchange Rate']
                 price = float(rate_data.get('5. Exchange Rate', 0))
                 if price and 50 < price < 200:
-                    logger.info(f"✅ Alpha Vantage price: ${price:.2f}/oz")
-                    # Update last call timestamp
-                    self.alpha_vantage_last_call = datetime.now()
+                    logger.info(f"Alpha Vantage price: ${price:.2f}/oz")
                     return price
-            else:
-                logger.warning(f"Alpha Vantage response missing expected data: {data}")
                     
         except Exception as e:
             logger.error(f"Error fetching from Alpha Vantage: {e}")
         
         return None
-        
-        return None
     
-    def _fetch_from_apmex(self) -> Optional[float]:
-        """Fetch spot price from APMEX (scraping fallback)"""
-        url = 'https://www.apmex.com/spot/silver'
+    def _fetch_from_kitco(self) -> Optional[float]:
+        """Fetch spot price from Kitco (reliable precious metals source)"""
+        url = 'https://www.kitco.com/'
         try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -325,97 +290,53 @@ class SilverSpotPrice:
                 'Accept-Encoding': 'gzip, deflate, br',
                 'DNT': '1',
                 'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Referer': 'https://www.google.com/'
+                'Upgrade-Insecure-Requests': '1'
             }
             
             response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             
-            # APMEX often has JSON data embedded
-            import re
-            json_pattern = r'"ask":\s*([\d.]+)'
-            matches = re.findall(json_pattern, response.text)
-            
-            for match in matches:
-                price = float(match)
-                if 50 < price < 200:
-                    logger.info(f"✅ APMEX price: ${price:.2f}/oz")
-                    return price
-                    
-        except Exception as e:
-            logger.error(f"Error fetching from APMEX: {e}")
-        
-        return None
-    
-    def _fetch_from_kitco(self) -> Optional[float]:
-        """Fetch spot price from Kitco (reliable precious metals source)"""
-        try:
-            logger.info("🔄 Fetching from Kitco...")
-            url = 'https://www.kitco.com/market/'
-            
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Referer': 'https://www.google.com/'
-            }
-            
-            response = requests.get(url, headers=headers, timeout=15)
-            response.raise_for_status()
-            
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Kitco has a specific structure for bid/ask prices
-            # Look for silver spot price in the page
-            silver_section = soup.find('div', class_='silver-bid')
-            if silver_section:
-                bid_text = silver_section.get_text().strip()
-                price = self._extract_price_from_text(bid_text)
+            # Kitco displays spot prices in their header
+            # Look for silver price in various locations
+            silver_price = None
+            
+            # Method 1: Look for span with data-attribute
+            price_elements = soup.find_all(['span', 'div'], {'data-symbol': 'silver', 'class': lambda x: x and ('price' in x.lower() or 'ask' in x.lower())})
+            for elem in price_elements:
+                text = elem.get_text(strip=True)
+                price = self._extract_price_from_text(text)
                 if price and 50 < price < 200:
-                    logger.info(f"✅ Kitco silver bid price: ${price:.2f}/oz")
-                    return price
+                    silver_price = price
+                    break
             
-            # Alternative: Look for "Silver" heading and nearby price
-            silver_headings = soup.find_all(['h2', 'h3', 'h4'], string=lambda x: x and 'silver' in x.lower())
-            for heading in silver_headings:
-                # Look at next few elements for price
-                next_elements = heading.find_next_siblings(['div', 'span', 'p'], limit=3)
-                for element in next_elements:
-                    text = element.get_text().strip()
-                    price = self._extract_price_from_text(text)
-                    if price and 50 < price < 200:
-                        logger.info(f"✅ Kitco silver price: ${price:.2f}/oz")
-                        return price
+            # Method 2: Look for elements with text containing "Silver" and price
+            if not silver_price:
+                all_elements = soup.find_all(['span', 'div', 'td'])
+                for elem in all_elements:
+                    text = elem.get_text(strip=True)
+                    if 'silver' in text.lower():
+                        # Extract price from nearby text
+                        price = self._extract_price_from_text(text)
+                        if price and 50 < price < 200:
+                            silver_price = price
+                            break
             
-            # Final attempt: Search for price pattern in silver context
-            import re
-            # Look for patterns like "Silver $112.50" or "$112.50/oz" near "Silver"
-            for element in soup.find_all(string=re.compile(r'\$\d+\.\d{2}')):
-                parent_text = element.find_parent().get_text() if element.find_parent() else str(element)
-                if 'silver' in parent_text.lower():
-                    price = self._extract_price_from_text(str(element))
-                    if price and 50 < price < 200:
-                        logger.info(f"✅ Kitco silver price (contextual): ${price:.2f}/oz")
-                        return price
-                    
+            if silver_price:
+                logger.info(f"Kitco price: ${silver_price:.2f}/oz")
+                return silver_price
+                
         except Exception as e:
             logger.error(f"Error fetching from Kitco: {e}")
         
         return None
     
-    def _fetch_from_google_finance(self) -> Optional[float]:
-        """Fetch spot price from Google Finance silver futures"""
+    def _fetch_from_google(self) -> Optional[float]:
+        """Fetch spot price from Google Finance SIW00 (silver spot)"""
+        url = 'https://www.google.com/finance/quote/SIW00:COMEX'
         try:
-            logger.info("🔄 Fetching from Google Finance (SI silver futures)...")
-            # Use SI silver futures (globex) as proxy for spot price
-            url = 'https://www.google.com/finance/quote/SI:COMEX'
-            
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -423,54 +344,104 @@ class SilverSpotPrice:
                 'Accept-Encoding': 'gzip, deflate, br',
                 'DNT': '1',
                 'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Referer': 'https://www.google.com/'
+                'Upgrade-Insecure-Requests': '1'
             }
             
-            response = requests.get(url, headers=headers, timeout=15)
+            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             
             from bs4 import BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Google Finance uses specific classes for prices
-            # Look for the main price element
+            # Google Finance displays the main price with class 'YMlKec fxKbKc'
             price_element = soup.find('div', class_='YMlKec fxKbKc')
+            
             if price_element:
-                price_text = price_element.get_text().strip()
-                price = self._extract_price_from_text(price_text)
-                # Silver futures are ~30/oz (5000oz contract / contract price)
-                # Convert futures to spot (rough approximation)
-                if price and 30 < price < 50:
-                    # Multiply by ~3.5 to approximate spot from futures
-                    estimated_spot = price * 3.5
-                    if 50 < estimated_spot < 200:
-                        logger.info(f"✅ Google Finance SI futures: ${price:.2f} → estimated spot: ${estimated_spot:.2f}/oz")
-                        return estimated_spot
-            
-            # Alternative: Look for data attributes
-            price_div = soup.find('div', {'data-last-price': True})
-            if price_div:
-                price = float(price_div.get('data-last-price', 0))
-                if 30 < price < 50:
-                    estimated_spot = price * 3.5
-                    if 50 < estimated_spot < 200:
-                        logger.info(f"✅ Google Finance SI futures (data attr): ${price:.2f} → estimated spot: ${estimated_spot:.2f}/oz")
-                        return estimated_spot
-            
-            # Final attempt: Look for any price pattern
-            import re
-            for element in soup.find_all(string=re.compile(r'\d+\.\d{2}')):
-                text = str(element).strip()
-                price = self._extract_price_from_text(text)
-                if price and 30 < price < 50:
-                    estimated_spot = price * 3.5
-                    if 50 < estimated_spot < 200:
-                        logger.info(f"✅ Google Finance SI futures (pattern): ${price:.2f} → estimated spot: ${estimated_spot:.2f}/oz")
-                        return estimated_spot
+                text = price_element.get_text(strip=True)
+                # Remove commas and currency symbols
+                text = text.replace(',', '').replace('$', '')
+                try:
+                    price = float(text)
+                    if 50 < price < 200:
+                        logger.info(f"Google Finance (SIW00) spot price: ${price:.2f}/oz")
+                        return price
+                except ValueError:
+                    pass
                     
         except Exception as e:
             logger.error(f"Error fetching from Google Finance: {e}")
+        
+        return None
+    
+    def _fetch_from_apmex(self) -> Optional[float]:
+        """Fetch spot price from APMEX (scraping fallback) - LAST RESORT ONLY"""
+        url = 'https://www.apmex.com/silver-price'
+        try:
+            # Use session to maintain cookies
+            session = requests.Session()
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
+                'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+                'Referer': 'https://www.google.com/'
+            }
+            
+            response = session.get(url, headers=headers, timeout=30, allow_redirects=True)
+            response.raise_for_status()
+            
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Try multiple methods to find silver price
+            # Method 1: Look for spot price in meta tags or structured data
+            price_meta = soup.find('meta', {'property': 'og:price:amount'})
+            if price_meta:
+                try:
+                    price = float(price_meta.get('content', ''))
+                    if 50 < price < 200:
+                        logger.info(f"APMEX price (meta): ${price:.2f}/oz")
+                        return price
+                except (ValueError, TypeError):
+                    pass
+            
+            # Method 2: Look for JSON-LD structured data
+            import re
+            import json
+            json_ld = soup.find('script', type='application/ld+json')
+            if json_ld:
+                try:
+                    data = json.loads(json_ld.string)
+                    if isinstance(data, dict) and 'offers' in data:
+                        price = float(data['offers'].get('price', 0))
+                        if 50 < price < 200:
+                            logger.info(f"APMEX price (JSON-LD): ${price:.2f}/oz")
+                            return price
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    pass
+            
+            # Method 3: Look for price in span/div elements
+            price_elements = soup.find_all(['span', 'div'], class_=lambda x: x and ('price' in str(x).lower() or 'spot' in str(x).lower()))
+            for elem in price_elements:
+                text = elem.get_text(strip=True)
+                price = self._extract_price_from_text(text)
+                if price and 50 < price < 200:
+                    logger.info(f"APMEX price (element): ${price:.2f}/oz")
+                    return price
+                    
+        except Exception as e:
+            logger.error(f"Error fetching from APMEX: {e}")
         
         return None
     

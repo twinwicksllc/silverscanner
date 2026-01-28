@@ -4,10 +4,42 @@ Handles all application settings and environment variables
 """
 
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+class HardcodedSecretError(Exception):
+    """Raised when a hardcoded secret is detected in configuration"""
+    pass
+
+def validate_no_hardcoded_secrets(value, var_name):
+    """
+    Validates that a configuration value is not a hardcoded secret.
+    Raises HardcodedSecretError if a secret pattern is detected.
+    """
+    if not value:
+        return value
+    
+    # Patterns that indicate hardcoded secrets
+    secret_patterns = [
+        (r'ThomasFe-SuperNin-PRD-', 'eBay Production Client ID'),
+        (r'PRD-[a-z0-9]{12}-', 'eBay Production Client Secret'),
+        (r'v\^1\.1#i\^1#p\^3', 'eBay User Token'),
+        (r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', 'UUID/Dev ID')
+    ]
+    
+    for pattern, secret_type in secret_patterns:
+        if re.search(pattern, str(value)):
+            raise HardcodedSecretError(
+                f"CRITICAL: Hardcoded {secret_type} detected in {var_name}!\n"
+                f"Value: {value[:20]}...\n"
+                f"This is a security violation. Secrets must be loaded from environment variables.\n"
+                f"Fix: Set {var_name} in your environment or .env file, not in code."
+            )
+    
+    return value
 
 class Config:
     """Application configuration settings"""
@@ -19,8 +51,8 @@ class Config:
     PORT = int(os.getenv('PORT', 5000))
     
     # eBay API Configuration
-    EBAY_CLIENT_ID = os.getenv('EBAY_CLIENT_ID')
-    EBAY_CLIENT_SECRET = os.getenv('EBAY_CLIENT_SECRET')
+    EBAY_CLIENT_ID = validate_no_hardcoded_secrets(os.getenv('EBAY_CLIENT_ID', ''), 'EBAY_CLIENT_ID')
+    EBAY_CLIENT_SECRET = validate_no_hardcoded_secrets(os.getenv('EBAY_CLIENT_SECRET', ''), 'EBAY_CLIENT_SECRET')
     EBAY_USE_SANDBOX = os.getenv('EBAY_USE_SANDBOX', 'True').lower() == 'true'
     
     # Set API URLs based on environment (Sandbox vs Production)
@@ -38,9 +70,6 @@ class Config:
     MAX_ITEMS_PER_SCAN = int(os.getenv('MAX_ITEMS_PER_SCAN', 200))
     DEAL_THRESHOLD_PERCENTAGE = float(os.getenv('DEAL_THRESHOLD_PERCENTAGE', 83.0))
     MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))
-    
-    # User Timezone Configuration
-    USER_TIMEZONE = os.getenv('USER_TIMEZONE', 'America/Chicago')  # Default to CST (Chicago)
     
     # Search Keywords and Categories
     SEARCH_KEYWORDS = [
@@ -71,14 +100,10 @@ class Config:
         'https://www.apmex.com/spot/silver'
     ]
     
-    # API keys for third-party price sources (optional)
-    METALS_API_KEY = os.getenv('METALS_API_KEY', '')  # metals-api.com
+    # API key for Alpha Vantage (free tier: 25 requests/day)
     ALPHA_VANTAGE_API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY', '')  # alphavantage.co
     
     SPOT_PRICE_CACHE_MINUTES = 15
-    
-    # Alpha Vantage rate limiting (max once per hour)
-    ALPHA_VANTAGE_RATE_LIMIT_MINUTES = 60
     SPOT_PRICE_VARIANCE_THRESHOLD = 0.05  # 5% difference triggers fallback verification
     
     # Actual Silver Weight (ASW) Database
