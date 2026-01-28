@@ -1,13 +1,11 @@
 """
-TeckStart Silver Scanner - Main Flask Application
+SuperNinja Silver Deal Scanner - Main Flask Application
 Web interface and API endpoints
 """
 
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 import logging
 from datetime import datetime, timedelta
-import pytz
-import threading
 
 # Initialize Flask app FIRST
 app = Flask(__name__)
@@ -40,25 +38,10 @@ def timeago_filter(date_string):
         return 'Never'
     
     try:
-        # Parse the datetime string
         date = datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+        now = datetime.now(date.tzinfo)
+        diff = now - date
         
-        # Get user timezone
-        try:
-            user_tz = pytz.timezone(Config.USER_TIMEZONE)
-        except:
-            user_tz = pytz.UTC
-        
-        # Convert datetime to user timezone
-        if date.tzinfo is None:
-            date = pytz.UTC.localize(date)
-        date_user_tz = date.astimezone(user_tz)
-        
-        # Get current time in user timezone
-        now = datetime.now(user_tz)
-        
-        # Calculate difference
-        diff = now - date_user_tz
         seconds = diff.total_seconds()
         
         if seconds < 60:
@@ -71,53 +54,10 @@ def timeago_filter(date_string):
             return f'{int(seconds // 86400)} day{"" if int(seconds // 86400) == 1 else "s"} ago'
         else:
             return f'{int(seconds // 604800)} week{"" if int(seconds // 604800) == 1 else "s"} ago'
-    except Exception as e:
-        logger.error(f"Error in timeago_filter: {e}")
+    except:
         return 'Unknown'
 
 app.jinja_env.filters['timeago'] = timeago_filter
-
-def parse_condition_tags(title: str) -> list:
-    """
-    Parse item title for condition/grade tags.
-    Returns list of detected tags (e.g., ['MS65', 'PCGS'])
-    """
-    if not title:
-        return []
-    
-    tags = []
-    title_upper = title.upper()
-    
-    # Common grading services
-    grading_services = ['PCGS', 'NGC', 'ANACS', 'ICG', 'CAC']
-    for service in grading_services:
-        if service in title_upper:
-            tags.append(service)
-    
-    # MS (Mint State) grades (60-70)
-    import re
-    ms_matches = re.findall(r'MS[6-7][0-9]', title_upper)
-    tags.extend(ms_matches)
-    
-    # PF (Proof) grades (60-70)
-    pf_matches = re.findall(r'PF[6-7][0-9]', title_upper)
-    tags.extend(pf_matches)
-    
-    # Other condition indicators
-    condition_keywords = ['PROOF', 'UNCIRCULATED', 'UNC', 'BU', 'MINT STATE']
-    for keyword in condition_keywords:
-        if keyword in title_upper:
-            tags.append(keyword)
-    
-    # Remove duplicates while preserving order
-    seen = set()
-    unique_tags = []
-    for tag in tags:
-        if tag not in seen:
-            seen.add(tag)
-            unique_tags.append(tag)
-    
-    return unique_tags
 
 # Initialize components
 try:
@@ -137,11 +77,6 @@ scan_state = {
     'scan_error': None
 }
 
-@app.route('/healthz')
-def health_check():
-    """Health check endpoint for Render and other monitoring services"""
-    return {"status": "healthy"}, 200
-
 @app.route('/')
 def index():
     """Main dashboard page"""
@@ -149,25 +84,16 @@ def index():
         # Get current price info
         price_info = spot_price.get_price_info()
         
-        # Get recent deals from database (for display table)
+        # Get recent deals from database
         recent_deals = db_manager.get_recent_deals(limit=20)
         
-        # Get deals count for last 24 hours
-        deals_last_24h = db_manager.get_deals_last_24h()
-        
-        # Get last scan details from database
-        last_scan_details = db_manager.get_last_scan()
-        
         # Get scan state
-        last_scan = last_scan_details['start_time'] if last_scan_details else scan_state['last_scan_time']
+        last_scan = scan_state['last_scan_time']
         is_scanning = scan_state['is_scanning']
         
         return render_template('index.html',
-                             config=Config,
                              price_info=price_info,
                              recent_deals=recent_deals,
-                             deals_last_24h=deals_last_24h,
-                             last_scan_details=last_scan_details,
                              last_scan=last_scan,
                              is_scanning=is_scanning,
                              scan_error=scan_state['scan_error'])
@@ -175,7 +101,6 @@ def index():
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         return render_template('index.html',
-                             config=Config,
                              error=str(e))
 
 @app.route('/api/price')
@@ -194,38 +119,22 @@ def api_price():
             'error': str(e)
         }), 500
 
-@app.route('/api/price/refresh', methods=['POST'])
-def api_price_refresh():
-    """API endpoint to force refresh spot price (bypass cache)"""
-    try:
-        logger.info("🔄 FORCE REFRESH: Triggering spot price refresh via API")
-        price = spot_price.get_spot_price(force_refresh=True)
-        
-        if price:
-            price_info = spot_price.get_price_info()
-            return jsonify({
-                'success': True,
-                'message': 'Spot price refreshed successfully',
-                'data': price_info
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Failed to fetch fresh spot price'
-            }), 500
-    except Exception as e:
-        logger.error(f"Error forcing price refresh: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-def _perform_scan_background():
-    """Background thread function to perform scan"""
+@app.route('/api/scan', methods=['POST'])
+def api_scan():
+    """API endpoint to trigger a scan"""
     global scan_state
     
+    if scan_state['is_scanning']:
+        return jsonify({
+            'success': False,
+            'error': 'Scan already in progress'
+        }), 400
+    
     try:
-        logger.info("Background scan started")
+        scan_state['is_scanning'] = True
+        scan_state['scan_error'] = None
+        
+        logger.info("Manual scan triggered via API")
         
         # Perform scan
         deals = deal_scanner.perform_scan()
@@ -256,49 +165,21 @@ def _perform_scan_background():
         # Update scan state
         scan_state['last_scan_time'] = datetime.now().isoformat()
         scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
-        scan_state['items_scanned'] = len(deals) + summary.get('total_deals', 0)
-        scan_state['deals_found'] = len(deals)
         scan_state['is_scanning'] = False
         
-        logger.info(f"Background scan complete: {len(deals)} deals found, {saved_count} saved to database")
+        logger.info(f"Scan complete: {len(deals)} deals found, {saved_count} saved to database")
         
-    except Exception as e:
-        logger.error(f"Error during background scan: {e}")
-        scan_state['is_scanning'] = False
-        scan_state['scan_error'] = str(e)
-
-@app.route('/api/scan', methods=['POST'])
-def api_scan():
-    """API endpoint to trigger a scan (runs in background thread)"""
-    global scan_state
-    
-    if scan_state['is_scanning']:
-        return jsonify({
-            'success': False,
-            'error': 'Scan already in progress'
-        }), 400
-    
-    try:
-        scan_state['is_scanning'] = True
-        scan_state['scan_error'] = None
-        scan_state['items_scanned'] = 0
-        scan_state['deals_found'] = 0
-        
-        logger.info("Manual scan triggered via API - starting background thread")
-        
-        # Start scan in background thread
-        scan_thread = threading.Thread(target=_perform_scan_background, daemon=True)
-        scan_thread.start()
-        
-        # Return immediately
         return jsonify({
             'success': True,
-            'message': 'Scan started in background',
-            'status': 'scanning'
+            'data': {
+                'deals_found': len(deals),
+                'deals_saved': saved_count,
+                'summary': summary
+            }
         })
     
     except Exception as e:
-        logger.error(f"Error starting scan: {e}")
+        logger.error(f"Error during scan: {e}")
         scan_state['is_scanning'] = False
         scan_state['scan_error'] = str(e)
         
@@ -313,17 +194,6 @@ def api_deals():
     try:
         limit = request.args.get('limit', 50, type=int)
         deals = db_manager.get_recent_deals(limit=limit)
-        
-        # Add time_since_listed and condition_tags to each deal
-        for deal in deals:
-            # Calculate time since listed
-            if deal.get('time_listed'):
-                deal['time_since_listed'] = timeago_filter(deal['time_listed'])
-            else:
-                deal['time_since_listed'] = 'Unknown'
-            
-            # Parse condition tags from title
-            deal['condition_tags'] = parse_condition_tags(deal.get('title', ''))
         
         return jsonify({
             'success': True,
@@ -345,8 +215,6 @@ def api_scan_status():
             'is_scanning': scan_state['is_scanning'],
             'last_scan_time': scan_state['last_scan_time'],
             'scan_error': scan_state['scan_error'],
-            'items_scanned': scan_state.get('items_scanned', 0),
-            'deals_found': scan_state.get('deals_found', 0),
             'recent_deals_count': len(scan_state['scan_results'])
         }
     })
@@ -369,10 +237,6 @@ def api_settings():
             Config.SCAN_INTERVAL_MINUTES = int(data['scan_interval'])
         if 'min_seller_feedback' in data:
             Config.MIN_SELLER_FEEDBACK = float(data['min_seller_feedback'])
-        if 'history_timeframe_days' in data:
-            Config.HISTORY_TIMEFRAME_DAYS = int(data['history_timeframe_days'])
-        if 'user_timezone' in data:
-            Config.USER_TIMEZONE = str(data['user_timezone'])
         
         logger.info("Settings updated successfully")
         
@@ -392,7 +256,7 @@ def api_settings():
 def api_price_history():
     """API endpoint to get silver spot price history"""
     try:
-        days = request.args.get('days', Config.HISTORY_TIMEFRAME_DAYS, type=int)
+        days = request.args.get('days', 30, type=int)
         price_history = db_manager.get_price_history(days=days)
         
         return jsonify({
@@ -454,6 +318,103 @@ if __name__ == '__main__':
         logger.info("Digest scheduler started successfully")
     except Exception as e:
         logger.error(f"Failed to start digest scheduler: {e}")
+
+
+@app.route('/admin/migrate/time_listed', methods=['POST'])
+def run_migration():
+    """
+    Admin endpoint to add time_listed column to deals table
+    This can be called on Render to update the database schema
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/time_listed \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check - require a secret key
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    database_url = os.getenv('DATABASE_URL')
+    
+    if not database_url:
+        return jsonify({
+            'success': False,
+            'error': 'DATABASE_URL not configured'
+        }), 500
+    
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(database_url)
+        
+        with engine.connect() as conn:
+            # Check if column already exists
+            check_sql = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'deals' 
+            AND column_name = 'time_listed';
+            """
+            
+            result = conn.execute(text(check_sql))
+            existing = result.fetchone()
+            
+            if existing:
+                logger.info("Column time_listed already exists - skipping migration")
+                return jsonify({
+                    'success': True,
+                    'message': 'Column time_listed already exists',
+                    'action': 'skipped'
+                })
+            
+            logger.info("Adding time_listed column to deals table...")
+            
+            # Add the column
+            alter_sql = """
+            ALTER TABLE deals 
+            ADD COLUMN time_listed TIMESTAMP;
+            """
+            
+            conn.execute(text(alter_sql))
+            conn.commit()
+            
+            logger.info("Creating index on time_listed column...")
+            
+            # Create index
+            index_sql = """
+            CREATE INDEX idx_deals_time_listed 
+            ON deals(time_listed);
+            """
+            
+            try:
+                conn.execute(text(index_sql))
+                conn.commit()
+            except Exception as e:
+                if "already exists" not in str(e):
+                    raise
+            
+            engine.dispose()
+            
+            logger.info("Migration completed successfully!")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Successfully added time_listed column to deals table',
+                'action': 'created'
+            })
+            
+    except Exception as e:
+        logger.error(f"Migration failed: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
     
     # Run the app
     logger.info(f"Starting SuperNinja Silver Deal Scanner on port {Config.PORT}")

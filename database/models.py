@@ -199,7 +199,6 @@ class DatabaseManager:
                 condition=deal_data.get('condition'),
                 item_url=deal_data.get('item_url'),
                 image_url=deal_data.get('image_url'),
-                time_listed=deal_data.get('time_listed'),
                 scan_id=deal_data.get('scan_id'),
                 confidence=deal_data.get('asw_info', {}).get('confidence')
             )
@@ -246,39 +245,6 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def get_last_scan(self) -> Dict:
-        """Get details of the last completed scan"""
-        session = self.get_session()
-        try:
-            last_scan = session.query(ScanHistory).order_by(
-                ScanHistory.start_time.desc()
-            ).first()
-            
-            if not last_scan:
-                return None
-            
-            # Calculate duration
-            duration = None
-            if last_scan.end_time and last_scan.start_time:
-                duration = (last_scan.end_time - last_scan.start_time).total_seconds()
-            
-            return {
-                'scan_id': last_scan.scan_id,
-                'start_time': last_scan.start_time.isoformat() if last_scan.start_time else None,
-                'end_time': last_scan.end_time.isoformat() if last_scan.end_time else None,
-                'duration_seconds': duration,
-                'total_listings_scanned': last_scan.total_listings_scanned,
-                'qualified_deals_found': last_scan.qualified_deals_found,
-                'items_rejected': last_scan.items_rejected,
-                'status': last_scan.status
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting last scan: {e}")
-            return None
-        finally:
-            session.close()
-    
     def get_recent_deals(self, limit: int = 50) -> list:
         """Get recent deals from database"""
         session = self.get_session()
@@ -292,24 +258,6 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting recent deals: {e}")
             return []
-        finally:
-            session.close()
-    
-    def get_deals_last_24h(self) -> int:
-        """Get count of deals from the last 24 hours"""
-        session = self.get_session()
-        try:
-            cutoff_date = datetime.utcnow() - timedelta(hours=24)
-            
-            count = session.query(Deal).filter(
-                Deal.qualified_at >= cutoff_date
-            ).count()
-            
-            return count
-            
-        except Exception as e:
-            logger.error(f"Error getting deals count for last 24h: {e}")
-            return 0
         finally:
             session.close()
     
@@ -332,7 +280,6 @@ class DatabaseManager:
             'condition': deal.condition,
             'item_url': deal.item_url,
             'image_url': deal.image_url,
-            'time_listed': deal.time_listed.isoformat() if deal.time_listed else None,
             'qualified_at': deal.qualified_at.isoformat() if deal.qualified_at else None
         }
     
@@ -379,46 +326,17 @@ class DatabaseManager:
             session.close()
     
     def save_price_history(self, price: float, source: str = None) -> bool:
-        """
-        Save a price history entry with safety buffer.
-        Only saves if price moved > $0.05 OR 1 hour has passed since last entry.
-        """
+        """Save a price history entry (every other scrape)"""
         session = self.get_session()
         try:
-            # Get the most recent price history entry
-            last_entry = session.query(PriceHistory).order_by(
-                PriceHistory.timestamp.desc()
-            ).first()
+            price_history = PriceHistory(
+                price=price,
+                source=source
+            )
             
-            should_save = True
-            
-            if last_entry:
-                # Check time difference
-                time_diff = datetime.utcnow() - last_entry.timestamp
-                time_diff_hours = time_diff.total_seconds() / 3600
-                
-                # Check price difference
-                price_diff = abs(price - last_entry.price)
-                
-                # Safety buffer: Only save if price moved > $0.05 OR 1 hour passed
-                if time_diff_hours < 1.0 and price_diff <= 0.05:
-                    should_save = False
-                    logger.debug(
-                        f"Skipping price history update: "
-                        f"Price change ${price_diff:.2f} <= $0.05 and "
-                        f"Time {time_diff_hours:.2f}h < 1h"
-                    )
-            
-            if should_save:
-                price_history = PriceHistory(
-                    price=price,
-                    source=source
-                )
-                
-                session.add(price_history)
-                session.commit()
-                logger.info(f"Saved price history: ${price:.2f} from {source}")
-            
+            session.add(price_history)
+            session.commit()
+            logger.debug(f"Saved price history: ${price:.2f} from {source}")
             return True
             
         except Exception as e:
