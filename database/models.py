@@ -246,6 +246,39 @@ class DatabaseManager:
         finally:
             session.close()
     
+    def get_last_scan(self) -> Dict:
+        """Get details of the last completed scan"""
+        session = self.get_session()
+        try:
+            last_scan = session.query(ScanHistory).order_by(
+                ScanHistory.start_time.desc()
+            ).first()
+            
+            if not last_scan:
+                return None
+            
+            # Calculate duration
+            duration = None
+            if last_scan.end_time and last_scan.start_time:
+                duration = (last_scan.end_time - last_scan.start_time).total_seconds()
+            
+            return {
+                'scan_id': last_scan.scan_id,
+                'start_time': last_scan.start_time.isoformat() if last_scan.start_time else None,
+                'end_time': last_scan.end_time.isoformat() if last_scan.end_time else None,
+                'duration_seconds': duration,
+                'total_listings_scanned': last_scan.total_listings_scanned,
+                'qualified_deals_found': last_scan.qualified_deals_found,
+                'items_rejected': last_scan.items_rejected,
+                'status': last_scan.status
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting last scan: {e}")
+            return None
+        finally:
+            session.close()
+    
     def get_recent_deals(self, limit: int = 50) -> list:
         """Get recent deals from database"""
         session = self.get_session()
@@ -259,6 +292,24 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting recent deals: {e}")
             return []
+        finally:
+            session.close()
+    
+    def get_deals_last_24h(self) -> int:
+        """Get count of deals from the last 24 hours"""
+        session = self.get_session()
+        try:
+            cutoff_date = datetime.utcnow() - timedelta(hours=24)
+            
+            count = session.query(Deal).filter(
+                Deal.qualified_at >= cutoff_date
+            ).count()
+            
+            return count
+            
+        except Exception as e:
+            logger.error(f"Error getting deals count for last 24h: {e}")
+            return 0
         finally:
             session.close()
     

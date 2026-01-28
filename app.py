@@ -149,16 +149,25 @@ def index():
         # Get current price info
         price_info = spot_price.get_price_info()
         
-        # Get recent deals from database
+        # Get recent deals from database (for display table)
         recent_deals = db_manager.get_recent_deals(limit=20)
         
+        # Get deals count for last 24 hours
+        deals_last_24h = db_manager.get_deals_last_24h()
+        
+        # Get last scan details from database
+        last_scan_details = db_manager.get_last_scan()
+        
         # Get scan state
-        last_scan = scan_state['last_scan_time']
+        last_scan = last_scan_details['start_time'] if last_scan_details else scan_state['last_scan_time']
         is_scanning = scan_state['is_scanning']
         
         return render_template('index.html',
+                             config=Config,
                              price_info=price_info,
                              recent_deals=recent_deals,
+                             deals_last_24h=deals_last_24h,
+                             last_scan_details=last_scan_details,
                              last_scan=last_scan,
                              is_scanning=is_scanning,
                              scan_error=scan_state['scan_error'])
@@ -166,6 +175,7 @@ def index():
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         return render_template('index.html',
+                             config=Config,
                              error=str(e))
 
 @app.route('/api/price')

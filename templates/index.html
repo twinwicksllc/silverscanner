@@ -70,7 +70,7 @@
             <div class="price-card">
                 <h3>Recent Deals</h3>
                 <div class="value">
-                    {{ recent_deals|length }}
+                    {{ deals_last_24h }}
                 </div>
                 <div class="subtext">Deals found in last 24 hours</div>
             </div>
@@ -80,15 +80,23 @@
                 <div class="value">
                     {% if is_scanning %}
                         <span class="loading"></span>
+                    {% elif last_scan_details %}
+                        {% if last_scan_details.duration_seconds %}
+                            {{ "%.1f"|format(last_scan_details.duration_seconds) }}s
+                        {% else %}
+                            ✓
+                        {% endif %}
                     {% else %}
-                        ✓
+                        Never scanned
                     {% endif %}
                 </div>
                 <div class="subtext">
-                    {% if is_scanning %}
-                        Scanning...
+                    {% if last_scan_details and last_scan_details.total_listings_scanned %}
+                        {{ last_scan_details.total_listings_scanned }} items scanned
+                    {% elif last_scan_details %}
+                        Scan completed
                     {% else %}
-                        Ready
+                        Ready to scan
                     {% endif %}
                 </div>
             </div>
