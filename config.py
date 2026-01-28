@@ -58,6 +58,7 @@ class Config:
     ]
     
     EBAY_CATEGORY_COINS = '112862'  # Coins & Paper Money
+    EBAY_CATEGORY_BULLION = '39487'  # Silver Bullion
     
     # Silver Spot Price Configuration
     
