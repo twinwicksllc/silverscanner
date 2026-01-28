@@ -1,5 +1,5 @@
 """
-SuperNinja Silver Deal Scanner - Configuration Module
+TeckStart Silver Scanner - Configuration Module
 Handles all application settings and environment variables
 """
 
@@ -38,6 +38,9 @@ class Config:
     MAX_ITEMS_PER_SCAN = int(os.getenv('MAX_ITEMS_PER_SCAN', 200))
     DEAL_THRESHOLD_PERCENTAGE = float(os.getenv('DEAL_THRESHOLD_PERCENTAGE', 83.0))
     MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))
+    
+    # History Timeframe for Charts (in days)
+    HISTORY_TIMEFRAME_DAYS = int(os.getenv('HISTORY_TIMEFRAME_DAYS', 30))
     
     # Search Keywords and Categories
     SEARCH_KEYWORDS = [

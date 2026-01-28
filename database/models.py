@@ -49,6 +49,7 @@ class Deal(Base):
     condition = Column(String(100))
     item_url = Column(String(500), nullable=False)
     image_url = Column(String(500))
+    time_listed = Column(DateTime)  # When the listing was created on eBay
     
     # Metadata
     scan_id = Column(String(50))
@@ -198,6 +199,7 @@ class DatabaseManager:
                 condition=deal_data.get('condition'),
                 item_url=deal_data.get('item_url'),
                 image_url=deal_data.get('image_url'),
+                time_listed=deal_data.get('time_listed'),
                 scan_id=deal_data.get('scan_id'),
                 confidence=deal_data.get('asw_info', {}).get('confidence')
             )
@@ -279,6 +281,7 @@ class DatabaseManager:
             'condition': deal.condition,
             'item_url': deal.item_url,
             'image_url': deal.image_url,
+            'time_listed': deal.time_listed.isoformat() if deal.time_listed else None,
             'qualified_at': deal.qualified_at.isoformat() if deal.qualified_at else None
         }
     

@@ -1,5 +1,5 @@
 """
-SuperNinja Silver Deal Scanner - Main Flask Application
+TeckStart Silver Scanner - Main Flask Application
 Web interface and API endpoints
 """
 
@@ -59,6 +59,48 @@ def timeago_filter(date_string):
         return 'Unknown'
 
 app.jinja_env.filters['timeago'] = timeago_filter
+
+def parse_condition_tags(title: str) -> list:
+    """
+    Parse item title for condition/grade tags.
+    Returns list of detected tags (e.g., ['MS65', 'PCGS'])
+    """
+    if not title:
+        return []
+    
+    tags = []
+    title_upper = title.upper()
+    
+    # Common grading services
+    grading_services = ['PCGS', 'NGC', 'ANACS', 'ICG', 'CAC']
+    for service in grading_services:
+        if service in title_upper:
+            tags.append(service)
+    
+    # MS (Mint State) grades (60-70)
+    import re
+    ms_matches = re.findall(r'MS[6-7][0-9]', title_upper)
+    tags.extend(ms_matches)
+    
+    # PF (Proof) grades (60-70)
+    pf_matches = re.findall(r'PF[6-7][0-9]', title_upper)
+    tags.extend(pf_matches)
+    
+    # Other condition indicators
+    condition_keywords = ['PROOF', 'UNCIRCULATED', 'UNC', 'BU', 'MINT STATE']
+    for keyword in condition_keywords:
+        if keyword in title_upper:
+            tags.append(keyword)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_tags = []
+    for tag in tags:
+        if tag not in seen:
+            seen.add(tag)
+            unique_tags.append(tag)
+    
+    return unique_tags
 
 # Initialize components
 try:
@@ -245,6 +287,17 @@ def api_deals():
         limit = request.args.get('limit', 50, type=int)
         deals = db_manager.get_recent_deals(limit=limit)
         
+        # Add time_since_listed and condition_tags to each deal
+        for deal in deals:
+            # Calculate time since listed
+            if deal.get('time_listed'):
+                deal['time_since_listed'] = timeago_filter(deal['time_listed'])
+            else:
+                deal['time_since_listed'] = 'Unknown'
+            
+            # Parse condition tags from title
+            deal['condition_tags'] = parse_condition_tags(deal.get('title', ''))
+        
         return jsonify({
             'success': True,
             'data': deals
@@ -289,6 +342,8 @@ def api_settings():
             Config.SCAN_INTERVAL_MINUTES = int(data['scan_interval'])
         if 'min_seller_feedback' in data:
             Config.MIN_SELLER_FEEDBACK = float(data['min_seller_feedback'])
+        if 'history_timeframe_days' in data:
+            Config.HISTORY_TIMEFRAME_DAYS = int(data['history_timeframe_days'])
         
         logger.info("Settings updated successfully")
         
@@ -308,7 +363,7 @@ def api_settings():
 def api_price_history():
     """API endpoint to get silver spot price history"""
     try:
-        days = request.args.get('days', 30, type=int)
+        days = request.args.get('days', Config.HISTORY_TIMEFRAME_DAYS, type=int)
         price_history = db_manager.get_price_history(days=days)
         
         return jsonify({
