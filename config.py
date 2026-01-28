@@ -1,17 +1,13 @@
 """
-SuperNinja Silver Deal Scanner - Configuration Module
+TeckStart Silver Scanner - Configuration Module
 Handles all application settings and environment variables
 """
 
 import os
-import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
-
-# Removed validate_no_hardcoded_secrets function to prevent security validator issues
-# All secrets should be stored in Render environment variables
 
 class Config:
     """Application configuration settings"""
@@ -63,7 +59,7 @@ class Config:
     
     EBAY_CATEGORY_COINS = '112862'  # Coins & Paper Money
     
-    # Spot Price Configuration
+    # Silver Spot Price Configuration
     
     # Primary sources for two-key verification
     PRIMARY_SPOT_SOURCES = [
@@ -128,6 +124,7 @@ class Config:
         DATABASE_URL = f'sqlite:///{DATABASE_PATH}'
     
     # Logging Configuration
+    LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
     LOG_PATH = os.path.join(os.path.dirname(__file__), 'logs')
     
     # Email Notification Settings
@@ -138,10 +135,6 @@ class Config:
     EMAIL_FROM = os.getenv('EMAIL_FROM', '')
     EMAIL_TO = os.getenv('EMAIL_TO', '')
     ENABLE_EMAIL_NOTIFICATIONS = os.getenv('ENABLE_EMAIL_NOTIFICATIONS', 'False').lower() == 'true'
-    
-    # Email notification thresholds
-    FIRE_ALARM_THRESHOLD = float(os.getenv('FIRE_ALARM_THRESHOLD', 15.0))  # 15% off spot = instant alert
-    DIGEST_SCHEDULE_TIMES = ['12:00', '20:00']  # 12 PM and 8 PM CST
     
     # Rate Limiting
     EBAY_API_RATE_LIMIT = 5000  # requests per hour
@@ -165,8 +158,6 @@ class Config:
                 errors.append("SMTP_USERNAME is required when email notifications are enabled")
             if not cls.SMTP_PASSWORD:
                 errors.append("SMTP_PASSWORD is required when email notifications are enabled")
-            if not cls.EMAIL_FROM:
-                errors.append("EMAIL_FROM is required when email notifications are enabled")
             if not cls.EMAIL_TO:
                 errors.append("EMAIL_TO is required when email notifications are enabled")
         
