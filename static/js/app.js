@@ -149,22 +149,28 @@ function updatePriceDisplay() {
     const priceInfo = AppState.priceInfo;
     if (!priceInfo) return;
     
-    // Update spot price
+    // Update spot price - API returns 'price' not 'spot_price'
     const spotPriceEl = document.getElementById('spot-price');
     if (spotPriceEl) {
-        spotPriceEl.textContent = formatCurrency(priceInfo.spot_price);
+        if (priceInfo.price !== null && priceInfo.price !== undefined) {
+            spotPriceEl.textContent = formatCurrency(priceInfo.price);
+        } else {
+            spotPriceEl.textContent = 'Loading...';
+        }
     }
     
-    // Update threshold
+    // Update threshold - calculate from price
     const thresholdEl = document.getElementById('threshold-price');
-    if (thresholdEl) {
-        thresholdEl.textContent = formatCurrency(priceInfo.threshold);
+    if (thresholdEl && priceInfo.price) {
+        const thresholdPercent = 0.89; // 89% threshold from config
+        const threshold = priceInfo.price * thresholdPercent;
+        thresholdEl.textContent = formatCurrency(threshold);
     }
     
-    // Update last update
+    // Update last update - API returns 'timestamp' not 'last_update'
     const lastUpdateEl = document.getElementById('last-price-update');
-    if (lastUpdateEl && priceInfo.last_update) {
-        lastUpdateEl.textContent = `Updated ${timeSince(priceInfo.last_update)}`;
+    if (lastUpdateEl && priceInfo.timestamp) {
+        lastUpdateEl.textContent = `Updated ${timeSince(priceInfo.timestamp)}`;
     }
 }
 
@@ -181,15 +187,21 @@ function updateScanStatus() {
     }
     
     if (statusText) {
-        statusText.textContent = AppState.isScanning 
-            ? 'Scanning eBay for deals...' 
-            : 'Ready to scan';
+        if (AppState.isScanning) {
+            statusText.textContent = 'Scanning eBay for deals...';
+        } else if (AppState.lastScanTime) {
+            statusText.textContent = `Finished ${timeSince(AppState.lastScanTime)}`;
+        } else {
+            statusText.textContent = 'Ready to scan';
+        }
     }
     
     if (lastScanEl) {
-        lastScanEl.textContent = AppState.lastScanTime 
-            ? `Last scan: ${formatDateTime(AppState.lastScanTime)}`
-            : 'Last scan: Never';
+        if (AppState.lastScanTime) {
+            lastScanEl.textContent = `Last scan: ${timeSince(AppState.lastScanTime)}`;
+        } else {
+            lastScanEl.textContent = 'Last scan: Never';
+        }
     }
     
     updateScanButton();

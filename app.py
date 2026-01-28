@@ -101,8 +101,9 @@ def index():
         # Get recent deals from database
         recent_deals = db_manager.get_recent_deals(limit=20)
         
-        # Get scan state
-        last_scan = scan_state['last_scan_time']
+        # Get scan state from database
+        last_scan_record = db_manager.get_last_scan()
+        last_scan = last_scan_record.scan_time.isoformat() if last_scan_record else None
         is_scanning = scan_state['is_scanning']
         
         return render_template('index.html',
@@ -265,11 +266,15 @@ def api_deals():
 @app.route('/api/scan/status')
 def api_scan_status():
     """API endpoint to get scan status"""
+    # Get last scan from database
+    last_scan_record = db_manager.get_last_scan()
+    last_scan_time = last_scan_record.scan_time.isoformat() if last_scan_record else None
+    
     return jsonify({
         'success': True,
         'data': {
             'is_scanning': scan_state['is_scanning'],
-            'last_scan_time': scan_state['last_scan_time'],
+            'last_scan_time': last_scan_time,
             'scan_error': scan_state['scan_error'],
             'recent_deals_count': len(scan_state['scan_results'])
         }

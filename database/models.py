@@ -467,3 +467,24 @@ class DatabaseManager:
             return None
         finally:
             session.close()
+    
+    def get_last_scan(self):
+        """Get the most recent scan record from scan_history table"""
+        session = self.get_session()
+        try:
+            last_scan = session.query(ScanHistory).order_by(
+                ScanHistory.scan_time.desc()
+            ).first()
+            
+            if last_scan:
+                logger.debug(f"Last scan from database: {last_scan.scan_id} at {last_scan.scan_time}")
+            else:
+                logger.debug("No scan history records found in database")
+            
+            return last_scan
+            
+        except Exception as e:
+            logger.error(f"Error getting last scan from database: {e}")
+            return None
+        finally:
+            session.close()
