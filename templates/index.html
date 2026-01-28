@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TeckStart Silver Scanner</title>
+    <title>SuperNinja Silver Deal Scanner</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
 </head>
@@ -56,7 +56,7 @@
             </div>
 
             <div class="price-card">
-                <h3>Deal Threshold ({{ config.DEAL_THRESHOLD_PERCENTAGE }}%)</h3>
+                <h3>Deal Threshold (83%)</h3>
                 <div class="value dollar" id="threshold-price">
                     {% if price_info and price_info.threshold %}
                         ${{ "%.2f"|format(price_info.threshold) }}
@@ -70,7 +70,7 @@
             <div class="price-card">
                 <h3>Recent Deals</h3>
                 <div class="value">
-                    {{ deals_last_24h }}
+                    {{ recent_deals|length }}
                 </div>
                 <div class="subtext">Deals found in last 24 hours</div>
             </div>
@@ -80,23 +80,15 @@
                 <div class="value">
                     {% if is_scanning %}
                         <span class="loading"></span>
-                    {% elif last_scan_details %}
-                        {% if last_scan_details.duration_seconds %}
-                            {{ "%.1f"|format(last_scan_details.duration_seconds) }}s
-                        {% else %}
-                            ✓
-                        {% endif %}
                     {% else %}
-                        Never scanned
+                        ✓
                     {% endif %}
                 </div>
                 <div class="subtext">
-                    {% if last_scan_details and last_scan_details.total_listings_scanned %}
-                        {{ last_scan_details.total_listings_scanned }} items scanned
-                    {% elif last_scan_details %}
-                        Scan completed
+                    {% if is_scanning %}
+                        Scanning...
                     {% else %}
-                        Ready to scan
+                        Ready
                     {% endif %}
                 </div>
             </div>
@@ -221,9 +213,13 @@
                             <small>{{ deal.seller_username }}</small>
                         </td>
                         <td>
-                            {{ deal.condition }}
+                            {% if deal.condition_tags %}
+                                {{ deal.condition_tags|join(' ') }}
+                            {% else %}
+                                {{ deal.condition }}
+                            {% endif %}
                             <br>
-                            <small>{{ deal.qualified_at|timeago }}</small>
+                            <small>{{ deal.time_since_listed }}</small>
                         </td>
                     </tr>
                     {% endfor %}

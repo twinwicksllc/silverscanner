@@ -354,8 +354,8 @@ function updateTimeAgo() {
     const priceTime = document.getElementById('price-time-ago');
     const scanTime = document.getElementById('scan-time-ago');
     
-    if (priceTime && AppState.priceInfo && AppState.priceInfo.last_update) {
-        priceTime.textContent = timeSince(AppState.priceInfo.last_update);
+    if (priceTime && AppState.priceInfo && AppState.priceInfo.timestamp) {
+        priceTime.textContent = timeSince(AppState.priceInfo.timestamp);
     }
     
     if (scanTime && AppState.lastScanTime) {

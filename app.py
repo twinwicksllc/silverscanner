@@ -86,8 +86,17 @@ def healthz():
 def index():
     """Main dashboard page"""
     try:
-        # Get current price info
-        price_info = spot_price.get_price_info()
+        # Get current price info from database (no live fetch)
+        latest_price = db_manager.get_latest_price()
+        price_info = None
+        
+        if latest_price:
+            price_info = {
+                'spot_price': latest_price.price,
+                'source': latest_price.source,
+                'last_update': latest_price.timestamp,
+                'verified': True
+            }
         
         # Get recent deals from database
         recent_deals = db_manager.get_recent_deals(limit=20)

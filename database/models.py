@@ -263,6 +263,58 @@ class DatabaseManager:
     
     def _deal_to_dict(self, deal: Deal) -> Dict:
         """Convert Deal model to dictionary"""
+        from datetime import datetime
+        import pytz
+        
+        # Calculate time_since_listed
+        time_since_listed = None
+        if deal.time_listed:
+            try:
+                # Use user timezone if configured, otherwise UTC
+                user_timezone = Config.USER_TIMEZONE if hasattr(Config, 'USER_TIMEZONE') else 'UTC'
+                tz = pytz.timezone(user_timezone)
+                
+                now = datetime.now(tz)
+                listed = deal.time_listed.astimezone(tz) if deal.time_listed.tzinfo else tz.localize(deal.time_listed)
+                diff = now - listed
+                
+                seconds = diff.total_seconds()
+                if seconds < 60:
+                    time_since_listed = 'Just now'
+                elif seconds < 3600:
+                    mins = int(seconds // 60)
+                    time_since_listed = f'{mins}m ago'
+                elif seconds < 86400:
+                    hours = int(seconds // 3600)
+                    time_since_listed = f'{hours}h ago'
+                elif seconds < 604800:
+                    days = int(seconds // 86400)
+                    time_since_listed = f'{days}d ago'
+                else:
+                    time_since_listed = 'Unknown'
+            except Exception as e:
+                logger.debug(f"Error calculating time_since_listed: {e}")
+                time_since_listed = 'Unknown'
+        else:
+            time_since_listed = 'Unknown'
+        
+        # Parse condition tags from title
+        condition_tags = []
+        if deal.title:
+            title_upper = deal.title.upper()
+            # Common condition tags
+            tags_to_check = [
+                'PCGS', 'NGC', 'ANACS', 'ICG',
+                'MS60', 'MS61', 'MS62', 'MS63', 'MS64', 'MS65', 'MS66', 'MS67', 'MS68', 'MS69', 'MS70',
+                'BU', 'UNC', 'UNCIRCULATED',
+                'MINT STATE', 'PROOF',
+                'VF', 'XF', 'AU', 'F', 'G', 'AG',
+                'SLAB', 'GRADED', 'CERTIFIED'
+            ]
+            for tag in tags_to_check:
+                if tag in title_upper:
+                    condition_tags.append(tag)
+        
         return {
             'id': deal.id,
             'item_id': deal.item_id,
@@ -280,7 +332,10 @@ class DatabaseManager:
             'condition': deal.condition,
             'item_url': deal.item_url,
             'image_url': deal.image_url,
-            'qualified_at': deal.qualified_at.isoformat() if deal.qualified_at else None
+            'qualified_at': deal.qualified_at.isoformat() if deal.qualified_at else None,
+            'time_listed': deal.time_listed.isoformat() if deal.time_listed else None,
+            'time_since_listed': time_since_listed,
+            'condition_tags': condition_tags
         }
     
     def is_seller_blacklisted(self, seller_username: str) -> bool:
