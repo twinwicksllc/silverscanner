@@ -233,24 +233,30 @@ class SilverSpotPrice:
     def _fetch_from_fallback(self) -> Optional[float]:
         """
         Fetch from fallback sources to break tie
-        Tries in order: Alpha Vantage (PRIMARY), Metals-API.com, APMEX scraping
+        Tries in order: Alpha Vantage, Kitco, APMEX
         """
-        # Try Alpha Vantage FIRST if API key is set (PRIMARY TIE-BREAKER)
+        # TIER 1: Try Alpha Vantage if API key is set and not rate-limited
         if Config.ALPHA_VANTAGE_API_KEY:
             price = self._fetch_from_alpha_vantage()
             if price:
-                logger.info("✓ Using Alpha Vantage as tie-breaker")
+                logger.info("✓ Using Alpha Vantage as tie-breaker (Tier 1)")
                 return price
         
-        # Try Metals-API.com if API key is set
+        # TIER 2: Try Kitco (reliable precious metals source)
+        price = self._fetch_from_kitco()
+        if price:
+            logger.info("✓ Using Kitco as tie-breaker (Tier 2)")
+            return price
+        
+        # TIER 3: Try Metals-API.com if API key is set
         if Config.METALS_API_KEY:
             price = self._fetch_from_metals_api()
             if price:
-                logger.info("✓ Using Metals-API as tie-breaker")
+                logger.info("✓ Using Metals-API as tie-breaker (Tier 3)")
                 return price
         
-        # Last resort: APMEX scraping (often returns 403)
-        logger.warning("Attempting APMEX scraping as last resort...")
+        # TIER 4: Last resort - APMEX scraping (with headers to avoid 403)
+        logger.warning("Attempting APMEX scraping as final fallback...")
         return self._fetch_from_apmex()
     
     def _fetch_from_metals_api(self) -> Optional[float]:
@@ -320,7 +326,8 @@ class SilverSpotPrice:
                 'Accept-Encoding': 'gzip, deflate, br',
                 'DNT': '1',
                 'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
+                'Upgrade-Insecure-Requests': '1',
+                'Referer': 'https://www.google.com/'
             }
             
             response = requests.get(url, headers=headers, timeout=30)
@@ -334,11 +341,72 @@ class SilverSpotPrice:
             for match in matches:
                 price = float(match)
                 if 50 < price < 200:
-                    logger.info(f"APMEX price: ${price:.2f}/oz")
+                    logger.info(f"✅ APMEX price: ${price:.2f}/oz")
                     return price
                     
         except Exception as e:
             logger.error(f"Error fetching from APMEX: {e}")
+        
+        return None
+    
+    def _fetch_from_kitco(self) -> Optional[float]:
+        """Fetch spot price from Kitco (reliable precious metals source)"""
+        try:
+            logger.info("🔄 Fetching from Kitco...")
+            url = 'https://www.kitco.com/market/'
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Referer': 'https://www.google.com/'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Kitco has a specific structure for bid/ask prices
+            # Look for silver spot price in the page
+            silver_section = soup.find('div', class_='silver-bid')
+            if silver_section:
+                bid_text = silver_section.get_text().strip()
+                price = self._extract_price_from_text(bid_text)
+                if price and 50 < price < 200:
+                    logger.info(f"✅ Kitco silver bid price: ${price:.2f}/oz")
+                    return price
+            
+            # Alternative: Look for "Silver" heading and nearby price
+            silver_headings = soup.find_all(['h2', 'h3', 'h4'], string=lambda x: x and 'silver' in x.lower())
+            for heading in silver_headings:
+                # Look at next few elements for price
+                next_elements = heading.find_next_siblings(['div', 'span', 'p'], limit=3)
+                for element in next_elements:
+                    text = element.get_text().strip()
+                    price = self._extract_price_from_text(text)
+                    if price and 50 < price < 200:
+                        logger.info(f"✅ Kitco silver price: ${price:.2f}/oz")
+                        return price
+            
+            # Final attempt: Search for price pattern in silver context
+            import re
+            # Look for patterns like "Silver $112.50" or "$112.50/oz" near "Silver"
+            for element in soup.find_all(string=re.compile(r'\$\d+\.\d{2}')):
+                parent_text = element.find_parent().get_text() if element.find_parent() else str(element)
+                if 'silver' in parent_text.lower():
+                    price = self._extract_price_from_text(str(element))
+                    if price and 50 < price < 200:
+                        logger.info(f"✅ Kitco silver price (contextual): ${price:.2f}/oz")
+                        return price
+                    
+        except Exception as e:
+            logger.error(f"Error fetching from Kitco: {e}")
         
         return None
     
