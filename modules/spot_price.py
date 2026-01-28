@@ -38,44 +38,44 @@ class SilverSpotPrice:
         Returns:
             Verified spot price per troy ounce in USD, or None if verification fails
         """
-        # Check cache first (unless forced refresh)
-        cache_key = 'spot_price'
-        if not force_refresh and cache_key in self.cache:
-            cached_data = self.cache[cache_key]
-            if datetime.now() - cached_data['timestamp'] < self.cache_duration:
-                logger.info(f"Using cached spot price: ${cached_data['price']:.2f}/oz")
-                return cached_data['price']
-        
+        # ALWAYS attempt live fetch first - cache is EMERGENCY FALLBACK ONLY
         # Step 1: Fetch from primary sources
-        logger.info("Fetching from primary sources (JM Bullion, SD Bullion)...")
+        logger.info("Fetching from primary sources (JM Bullion, Kitco)...")
         jm_price = self._fetch_from_jmbullion()
-        sd_price = self._fetch_from_sdbullion()
+        kitco_price = self._fetch_from_kitco()
         
-        if not jm_price and not sd_price:
+        if not jm_price and not kitco_price:
             logger.error("Failed to fetch from both primary sources")
+            # EMERGENCY FALLBACK: Use cache if available
+            cache_key = 'spot_price'
+            if cache_key in self.cache:
+                cached_data = self.cache[cache_key]
+                logger.critical(f"⚠️ CRITICAL: All live sources failed. Using emergency cache: ${cached_data['price']:.2f}/oz (age: {(datetime.now() - cached_data['timestamp']).total_seconds()/60:.1f} minutes)")
+                return cached_data['price']
+            logger.critical("⚠️ CRITICAL: All live sources failed and no cache available!")
             return None
         
         if not jm_price:
-            logger.warning("JM Bullion failed, using SD Bullion only")
-            return self._finalize_price(sd_price, "SD Bullion only")
+            logger.warning("JM Bullion failed, using Kitco only")
+            return self._finalize_price(kitco_price, "Kitco only")
         
-        if not sd_price:
-            logger.warning("SD Bullion failed, using JM Bullion only")
+        if not kitco_price:
+            logger.warning("Kitco failed, using JM Bullion only")
             return self._finalize_price(jm_price, "JM Bullion only")
         
         # Step 2: Calculate difference and verify
-        avg_price = (jm_price + sd_price) / 2
-        difference = abs(jm_price - sd_price)
+        avg_price = (jm_price + kitco_price) / 2
+        difference = abs(jm_price - kitco_price)
         variance_threshold = Config.SPOT_PRICE_VARIANCE_THRESHOLD * avg_price
         
         logger.info(f"JM Bullion: ${jm_price:.2f}/oz")
-        logger.info(f"SD Bullion: ${sd_price:.2f}/oz")
+        logger.info(f"Kitco: ${kitco_price:.2f}/oz")
         logger.info(f"Difference: ${difference:.2f} (threshold: ${variance_threshold:.2f})")
         
         if difference <= variance_threshold:
             # Prices agree - use average
             logger.info(f"✓ Prices agree within {Config.SPOT_PRICE_VARIANCE_THRESHOLD*100}% threshold")
-            return self._finalize_price(avg_price, "JM Bullion + SD Bullion (verified)")
+            return self._finalize_price(avg_price, "JM Bullion + Kitco (verified)")
         
         # Step 3: Prices disagree - use fallback to break tie
         logger.warning(f"⚠ Prices disagree by ${difference:.2f} (>{Config.SPOT_PRICE_VARIANCE_THRESHOLD*100}%)")
@@ -85,25 +85,25 @@ class SilverSpotPrice:
         
         if not fallback_price:
             logger.critical("⚠️ CRITICAL: All fallback sources failed - using unverified average")
-            logger.warning(f"Using average of JM Bullion (${jm_price:.2f}) and SD Bullion (${sd_price:.2f})")
-            return self._finalize_price(avg_price, "JM Bullion + SD Bullion (UNVERIFIED)")
+            logger.warning(f"Using average of JM Bullion (${jm_price:.2f}) and Kitco (${kitco_price:.2f})")
+            return self._finalize_price(avg_price, "JM Bullion + Kitco (UNVERIFIED)")
         
         # Determine which primary source is closer to fallback
         jm_diff = abs(jm_price - fallback_price)
-        sd_diff = abs(sd_price - fallback_price)
+        kitco_diff = abs(kitco_price - fallback_price)
         
         logger.info(f"Fallback price: ${fallback_price:.2f}/oz")
         logger.info(f"JM Bullion difference from fallback: ${jm_diff:.2f}")
-        logger.info(f"SD Bullion difference from fallback: ${sd_diff:.2f}")
+        logger.info(f"Kitco difference from fallback: ${kitco_diff:.2f}")
         
-        if jm_diff < sd_diff:
+        if jm_diff < kitco_diff:
             logger.info("✓ JM Bullion is closer to fallback - using JM Bullion")
             verified_price = jm_price
             source = "JM Bullion (verified by fallback)"
         else:
-            logger.info("✓ SD Bullion is closer to fallback - using SD Bullion")
-            verified_price = sd_price
-            source = "SD Bullion (verified by fallback)"
+            logger.info("✓ Kitco is closer to fallback - using Kitco")
+            verified_price = kitco_price
+            source = "Kitco (verified by fallback)"
         
         return self._finalize_price(verified_price, source)
     
@@ -193,7 +193,7 @@ class SilverSpotPrice:
         return None
     
     def _fetch_from_sdbullion(self) -> Optional[float]:
-        """Fetch spot price from SD Bullion"""
+        """Fetch spot price from SD Bullion - uses direct silver-prices page"""
         url = 'https://sdbullion.com/silver-prices'
         try:
             headers = {
@@ -203,21 +203,64 @@ class SilverSpotPrice:
                 'Accept-Encoding': 'gzip, deflate, br',
                 'DNT': '1',
                 'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
+                'Upgrade-Insecure-Requests': '1',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
             
             response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             
+            from bs4 import BeautifulSoup
             soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Look for price elements
-            price_elements = soup.find_all(['span', 'div', 'p'], class_=lambda x: x and 'price' in x.lower())
+            # Strategy 1: Look for the main spot price display at the top of the page
+            # This should be the live current price, not historical data
             
-            for element in price_elements:
-                text = element.get_text().strip()
-                price = self._extract_price_from_text(text)
-                if price and 50 < price < 200:
+            # Method 1: Look for large heading or prominent price display
+            main_price_areas = soup.find_all(['h1', 'h2', 'div'], class_=lambda x: x and any(
+                keyword in str(x).lower() for keyword in ['spot', 'live', 'current', 'price', 'today']
+            ))
+            
+            for area in main_price_areas[:5]:  # Check first 5 prominent areas
+                text = area.get_text(strip=True)
+                # Look for price in format $XXX.XX
+                import re
+                price_match = re.search(r'\$\s*([0-9]{2,3}\.[0-9]{2})', text)
+                if price_match:
+                    price = float(price_match.group(1))
+                    if 50 < price < 200:
+                        logger.info(f"SD Bullion price: ${price:.2f}/oz")
+                        return price
+            
+            # Method 2: Look for structured data or meta tags
+            meta_price = soup.find('meta', {'property': 'og:price:amount'})
+            if meta_price:
+                try:
+                    price = float(meta_price.get('content', ''))
+                    if 50 < price < 200:
+                        logger.info(f"SD Bullion price (meta): ${price:.2f}/oz")
+                        return price
+                except (ValueError, TypeError):
+                    pass
+            
+            # Method 3: Look for the first prominent price on the page (before historical table)
+            # Get all text before "Historic" or "Historical" section
+            page_text = soup.get_text()
+            historical_index = page_text.lower().find('historic')
+            if historical_index > 0:
+                top_section = page_text[:historical_index]
+            else:
+                top_section = page_text[:2000]  # First 2000 chars
+            
+            import re
+            price_pattern = r'\$\s*([0-9]{2,3}\.[0-9]{2})'
+            matches = re.findall(price_pattern, top_section)
+            
+            for match in matches:
+                price = float(match)
+                if 50 < price < 200:
+                    logger.info(f"SD Bullion price: ${price:.2f}/oz")
                     return price
                     
         except Exception as e:
@@ -228,7 +271,7 @@ class SilverSpotPrice:
     def _fetch_from_fallback(self) -> Optional[float]:
         """
         Fetch from fallback sources to break tie (100% FREE sources only)
-        Tries in order: Alpha Vantage → Kitco → Google Finance
+        Tries in order: Alpha Vantage → Google Finance → SD Bullion
         """
         # Primary Fallback: Alpha Vantage (free API with rate limits)
         if Config.ALPHA_VANTAGE_API_KEY:
@@ -237,20 +280,20 @@ class SilverSpotPrice:
                 logger.info("✅ Using Alpha Vantage as fallback")
                 return price
         
-        # Secondary Fallback: Kitco (when Alpha Vantage rate limited)
-        price = self._fetch_from_kitco()
-        if price:
-            logger.info("✅ Using Kitco as fallback")
-            return price
-        
-        # Tertiary Fallback: Google Finance (when Kitco is down)
+        # Secondary Fallback: Google Finance
         price = self._fetch_from_google()
         if price:
             logger.info("✅ Using Google Finance as fallback")
             return price
         
+        # Tertiary Fallback: SD Bullion (may have stale data, but better than nothing)
+        price = self._fetch_from_sdbullion()
+        if price:
+            logger.warning("⚠️ Using SD Bullion as fallback (may be stale)")
+            return price
+        
         # All fallback sources failed
-        logger.critical("❌ CRITICAL: All fallback sources failed (Alpha Vantage, Kitco, Google Finance)")
+        logger.critical("❌ CRITICAL: All fallback sources failed (Alpha Vantage, Google Finance, SD Bullion)")
         return None
     
     

@@ -92,15 +92,15 @@ class Config:
     # Primary sources for two-key verification
     PRIMARY_SPOT_SOURCES = [
         'https://www.jmbullion.com/charts/silver-prices/',
-        'https://sdbullion.com/silver-prices'
+        'https://www.kitco.com/'
     ]
     
     # Fallback sources (used when primary sources disagree)
-    # Alpha Vantage (API), Kitco (scraping), Google Finance (scraping)
+    # Alpha Vantage (API), Google Finance (scraping), SD Bullion (scraping - may be stale)
     FALLBACK_SPOT_SOURCES = [
         'Alpha Vantage API',
-        'https://www.kitco.com/',
-        'https://www.google.com/finance/quote/SIW00:COMEX'
+        'https://www.google.com/finance/quote/SIW00:COMEX',
+        'https://sdbullion.com/silver-prices'
     ]
     
     # API key for Alpha Vantage (free tier: 25 requests/day)
