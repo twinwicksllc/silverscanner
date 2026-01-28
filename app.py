@@ -535,8 +535,11 @@ if __name__ == '__main__':
         logger.info("Digest scheduler started successfully")
     except Exception as e:
         logger.error(f"Failed to start digest scheduler: {e}")
-
-
+    
+    # Run the app
+    logger.info(f"Starting TeckStart Silver Scanner on port {Config.PORT}")
+    try:
+        app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
     finally:
         # Stop scheduler on shutdown
         try:

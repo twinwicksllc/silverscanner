@@ -86,47 +86,88 @@ class Config:
     SPOT_PRICE_VARIANCE_THRESHOLD = 0.05  # 5% difference triggers fallback verification
     
     # Actual Silver Weight (ASW) Database
-    ASW_DATABASE = {
+    ASW_VALUES = {
+        # 90% Silver Coins
         'walking liberty half': 0.36169,
         'barber half': 0.36169,
         'franklin half': 0.36169,
+        'kennedy half 1964': 0.36169,
         'peace dollar': 0.77344,
         'morgan dollar': 0.77344,
-        '1964 kennedy half': 0.36169,
-        '90% junk silver': 0.7234,  # per $1 face value
+        'eisenhower dollar 1971-1976': 0.3161,
+        
+        # 40% Silver Coins
+        'kennedy half 1965-1970': 0.1479,
+        
+        # Junk Silver (90% silver per $1 face value)
+        'junk silver': 0.7234,  # per $1 face value
+        'constitutional silver': 0.7234,  # per $1 face value
+        '90% silver': 0.7234,  # per $1 face value
+        
+        # Bullion
         '1 oz silver round': 1.0,
         '1 oz silver bar': 1.0,
         '10 oz silver bar': 10.0,
         '100 oz silver bar': 100.0,
-        'american silver eagle': 1.0
+        'silver eagle': 1.0,
+        'silver maple': 1.0,
+        'silver britannia': 1.0,
     }
     
     # Database Configuration
-    DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///silver_scanner.db')
+    # Support both PostgreSQL (Supabase) and SQLite
+    DATABASE_URL = os.getenv('DATABASE_URL', None)
     
-    # Email Configuration
+    # If DATABASE_URL is not set, fall back to SQLite
+    if not DATABASE_URL:
+        DATABASE_PATH = os.path.join(
+            os.environ.get('RENDER_PERSISTENT_DIR', 
+                          os.path.join(os.path.dirname(__file__), 'database')), 
+            'silver_scanner.db'
+        )
+        DATABASE_URL = f'sqlite:///{DATABASE_PATH}'
+    
+    # Logging Configuration
+    LOG_PATH = os.path.join(os.path.dirname(__file__), 'logs')
+    
+    # Email Notification Settings
     SMTP_SERVER = os.getenv('SMTP_SERVER', 'smtp.gmail.com')
     SMTP_PORT = int(os.getenv('SMTP_PORT', 587))
     SMTP_USERNAME = os.getenv('SMTP_USERNAME', '')
     SMTP_PASSWORD = os.getenv('SMTP_PASSWORD', '')
-    EMAIL_FROM = os.getenv('EMAIL_FROM', 'noreply@silverscanner.com')
+    EMAIL_FROM = os.getenv('EMAIL_FROM', '')
     EMAIL_TO = os.getenv('EMAIL_TO', '')
+    ENABLE_EMAIL_NOTIFICATIONS = os.getenv('ENABLE_EMAIL_NOTIFICATIONS', 'False').lower() == 'true'
     
     # Email notification thresholds
     FIRE_ALARM_THRESHOLD = float(os.getenv('FIRE_ALARM_THRESHOLD', 15.0))  # 15% off spot = instant alert
     DIGEST_SCHEDULE_TIMES = ['12:00', '20:00']  # 12 PM and 8 PM CST
     
+    # Rate Limiting
+    EBAY_API_RATE_LIMIT = 5000  # requests per hour
+    API_CALL_DELAY_SECONDS = 0.72  # to stay within rate limits
+    
+    # Deal Scoring
+    MIN_DEAL_CONFIDENCE = 0.6
+    MAX_SHIPPING_COST = 20.0  # Maximum reasonable shipping cost
+    
     @classmethod
     def validate(cls):
-        """Validate required configuration"""
+        """Validate required configuration settings"""
         errors = []
         
         if not cls.EBAY_CLIENT_ID:
             errors.append("EBAY_CLIENT_ID is required")
         if not cls.EBAY_CLIENT_SECRET:
             errors.append("EBAY_CLIENT_SECRET is required")
+        if cls.ENABLE_EMAIL_NOTIFICATIONS:
+            if not cls.SMTP_USERNAME:
+                errors.append("SMTP_USERNAME is required when email notifications are enabled")
+            if not cls.SMTP_PASSWORD:
+                errors.append("SMTP_PASSWORD is required when email notifications are enabled")
+            if not cls.EMAIL_FROM:
+                errors.append("EMAIL_FROM is required when email notifications are enabled")
+            if not cls.EMAIL_TO:
+                errors.append("EMAIL_TO is required when email notifications are enabled")
         
-        if errors:
-            raise ValueError(f"Configuration errors: {', '.join(errors)}")
-        
-        return True
+        return errors
