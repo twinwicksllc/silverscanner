@@ -191,6 +191,7 @@ class eBayAPI:
                 'image_url': item.get('image', {}).get('imageUrl', ''),
                 'listing_type': item.get('buyingOptions', []),
                 'category_id': item.get('categoryId', ''),
+                'time_listed': item.get('itemCreationDate'),  # eBay listing start time
                 'scan_time': datetime.now().isoformat()
             }
             

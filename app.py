@@ -3,7 +3,7 @@ SuperNinja Silver Deal Scanner - Main Flask Application
 Web interface and API endpoints
 """
 
-from flask import Flask, render_template, jsonify, request, redirect, url_for, flash
+from flask import Flask, render_template, jsonify, request, redirect, url_for
 import logging
 from datetime import datetime, timedelta
 
@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 # Import configuration and modules AFTER logging is configured
 from config import Config
 app.config.from_object(Config)
-app.secret_key = Config.SECRET_KEY
 
 from modules.spot_price import SilverSpotPrice
 from modules.ebay_api import eBayAPI
@@ -107,19 +106,32 @@ def index():
         last_scan = last_scan_record.start_time.isoformat() if last_scan_record else None
         is_scanning = scan_state['is_scanning']
         
+        # Prepare scan details for display
+        scan_details = None
+        if last_scan_record:
+            duration = None
+            if last_scan_record.end_time and last_scan_record.start_time:
+                duration_seconds = (last_scan_record.end_time - last_scan_record.start_time).total_seconds()
+                duration = f"{duration_seconds:.0f}s"
+            
+            scan_details = {
+                'items_scanned': last_scan_record.total_listings_scanned or 0,
+                'duration': duration,
+                'deals_found': last_scan_record.qualified_deals_found or 0
+            }
+        
         return render_template('index.html',
                              price_info=price_info,
                              recent_deals=recent_deals,
                              last_scan=last_scan,
+                             scan_details=scan_details,
                              is_scanning=is_scanning,
-                             scan_error=scan_state['scan_error'],
-                             config=Config)
+                             scan_error=scan_state['scan_error'])
     
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
         return render_template('index.html',
-                             error=str(e),
-                             config=Config)
+                             error=str(e))
 
 @app.route('/api/price')
 def api_price():
@@ -157,7 +169,7 @@ def run_background_scan():
     
     try:
         logger.info("Background scan started")
-        scan_start_time = datetime.now()
+        scan_start = datetime.utcnow()
         
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
         logger.info("Fetching fresh spot price for scan...")
@@ -173,15 +185,15 @@ def run_background_scan():
             if db_manager.save_deal(deal):
                 saved_count += 1
         
-        # Save scan history with duration
-        scan_end_time = datetime.now()
+        # Save scan history
         summary = deal_scanner.get_deal_summary()
         scan_id = summary.get('scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
+        scan_end = datetime.utcnow()
         
         db_manager.save_scan_history({
-            'start_time': scan_start_time,
-            'end_time': scan_end_time,
             'scan_id': scan_id,
+            'start_time': scan_start,
+            'end_time': scan_end,
             'spot_price': summary.get('spot_price', 0),
             'threshold': summary.get('threshold', 0),
             'total_listings': len(deals) + summary.get('total_deals', 0),
@@ -287,60 +299,9 @@ def api_scan_status():
         }
     })
 
-@app.route('/settings', methods=['GET', 'POST'])
+@app.route('/settings')
 def settings():
     """Settings page"""
-    if request.method == 'POST':
-        try:
-            # Parse form data
-            threshold_percentage = request.form.get('threshold_percentage', type=float)
-            scan_interval = request.form.get('scan_interval', type=int)
-            min_seller_feedback = request.form.get('min_seller_feedback', type=float)
-            user_timezone = request.form.get('user_timezone', type=str)
-            enable_email = request.form.get('enable_email', type=str)
-            email_to = request.form.get('email_to', type=str)
-            
-            # Update configuration in memory and persist to database
-            if threshold_percentage is not None:
-                Config.DEAL_THRESHOLD_PERCENTAGE = threshold_percentage
-                db_manager.save_setting('DEAL_THRESHOLD_PERCENTAGE', str(threshold_percentage))
-                logger.info(f"Threshold updated to {threshold_percentage}%")
-                
-            if scan_interval is not None:
-                Config.SCAN_INTERVAL_MINUTES = scan_interval
-                db_manager.save_setting('SCAN_INTERVAL_MINUTES', str(scan_interval))
-                logger.info(f"Scan interval updated to {scan_interval} minutes")
-                
-            if min_seller_feedback is not None:
-                Config.MIN_SELLER_FEEDBACK = min_seller_feedback
-                db_manager.save_setting('MIN_SELLER_FEEDBACK', str(min_seller_feedback))
-                logger.info(f"Min seller feedback updated to {min_seller_feedback}%")
-                
-            if user_timezone:
-                Config.USER_TIMEZONE = user_timezone
-                db_manager.save_setting('USER_TIMEZONE', user_timezone)
-                logger.info(f"Timezone updated to {user_timezone}")
-            
-            if enable_email:
-                Config.ENABLE_EMAIL_NOTIFICATIONS = enable_email.lower() == 'true'
-                db_manager.save_setting('ENABLE_EMAIL_NOTIFICATIONS', enable_email)
-                logger.info(f"Email notifications {'enabled' if Config.ENABLE_EMAIL_NOTIFICATIONS else 'disabled'}")
-            
-            if email_to:
-                Config.EMAIL_TO = email_to
-                db_manager.save_setting('EMAIL_TO', email_to)
-                logger.info(f"Notification email updated to {email_to}")
-            
-            # Flash message and redirect
-            flash('Settings saved successfully!', 'success')
-            return redirect('/settings')
-            
-        except Exception as e:
-            logger.error(f"Error saving settings: {e}")
-            flash(f'Error saving settings: {str(e)}', 'error')
-            return redirect('/settings')
-    
-    # GET request - render settings page
     return render_template('settings.html', config=Config)
 
 @app.route('/api/settings', methods=['POST'])
@@ -380,110 +341,6 @@ def api_settings():
     
     except Exception as e:
         logger.error(f"Error updating settings: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/deal/hide', methods=['POST'])
-def api_hide_deal():
-    """Hide/archive a deal"""
-    try:
-        data = request.json
-        item_id = data.get('item_id')
-        
-        if not item_id:
-            return jsonify({
-                'success': False,
-                'error': 'item_id is required'
-            }), 400
-        
-        success = db_manager.hide_deal(item_id)
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Deal hidden successfully'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Deal not found'
-            }), 404
-            
-    except Exception as e:
-        logger.error(f"Error hiding deal: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/deal/unhide', methods=['POST'])
-def api_unhide_deal():
-    """Unhide/restore a deal"""
-    try:
-        data = request.json
-        item_id = data.get('item_id')
-        
-        if not item_id:
-            return jsonify({
-                'success': False,
-                'error': 'item_id is required'
-            }), 400
-        
-        success = db_manager.unhide_deal(item_id)
-        
-        if success:
-            return jsonify({
-                'success': True,
-                'message': 'Deal restored successfully'
-            })
-        else:
-            return jsonify({
-                'success': False,
-                'error': 'Deal not found'
-            }), 404
-            
-    except Exception as e:
-        logger.error(f"Error unhiding deal: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/deals/hidden')
-def api_hidden_deals():
-    """Get all hidden/archived deals"""
-    try:
-        limit = request.args.get('limit', 50, type=int)
-        hidden_deals = db_manager.get_hidden_deals(limit)
-        
-        return jsonify({
-            'success': True,
-            'deals': hidden_deals
-        })
-        
-    except Exception as e:
-        logger.error(f"Error getting hidden deals: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-@app.route('/api/deal/cleanup', methods=['POST'])
-def api_cleanup_deals():
-    """Clean up expired deals (older than 7 days)"""
-    try:
-        cleaned_count = db_manager.cleanup_expired_deals()
-        
-        return jsonify({
-            'success': True,
-            'message': f'Cleaned up {cleaned_count} expired deals',
-            'count': cleaned_count
-        })
-        
-    except Exception as e:
-        logger.error(f"Error cleaning up deals: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -659,6 +516,7 @@ def load_settings_from_database():
         logger.warning(f"Could not load settings from database: {e}")
         logger.info("Using default configuration values")
 
+
 if __name__ == '__main__':
     # Create required directories
     import os
@@ -681,11 +539,8 @@ if __name__ == '__main__':
         logger.info("Digest scheduler started successfully")
     except Exception as e:
         logger.error(f"Failed to start digest scheduler: {e}")
-    
-    # Run the app
-    logger.info(f"Starting TeckStart Silver Scanner on port {Config.PORT}")
-    try:
-        app.run(host=Config.HOST, port=Config.PORT, debug=Config.DEBUG)
+
+
     finally:
         # Stop scheduler on shutdown
         try:

@@ -18,9 +18,6 @@ logger = logging.getLogger(__name__)
 class DealScanner:
     """Main deal scanner that coordinates all components"""
     
-    # Anti-scam keywords to filter out
-    SCAM_KEYWORDS = ['replica', 'plated', 'clad', 'copy', 'tribute', 'repair', 'parts']
-    
     def __init__(self):
         self.spot_price = SilverSpotPrice()
         self.ebay_api = eBayAPI()
@@ -67,20 +64,18 @@ class DealScanner:
         # Process each item
         qualified_deals = []
         rejected_count = 0
+        current_scan_item_ids = set()  # Track all item IDs for expunge routine
         
         for item in raw_items:
+            # Track item ID for expunge routine
+            item_id = item.get('itemId')
+            if item_id:
+                current_scan_item_ids.add(item_id)
             try:
                 # Extract item details
                 item_details = self.ebay_api.extract_item_details(item)
                 
                 if not item_details:
-                    continue
-                
-                # Anti-scam filter: Check title for scam keywords
-                title_lower = item_details.get('title', '').lower()
-                if any(keyword in title_lower for keyword in self.SCAM_KEYWORDS):
-                    logger.debug(f"Filtered out scam item: {item_details.get('title', 'Unknown')}")
-                    rejected_count += 1
                     continue
                 
                 # Calculate ASW
@@ -139,6 +134,11 @@ class DealScanner:
         
         if fire_alarm_count > 0:
             logger.info(f"Sent {fire_alarm_count} fire alarm alerts")
+        
+        # Expunge stale hidden deals (sold/expired items)
+        expunged_count = self.db_manager.expunge_stale_hidden_deals(current_scan_item_ids)
+        if expunged_count > 0:
+            logger.info(f"Expunged {expunged_count} stale hidden deals")
         
         self.scan_results = qualified_deals
         return qualified_deals

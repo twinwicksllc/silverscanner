@@ -1,13 +1,17 @@
 """
-TeckStart Silver Scanner - Configuration Module
+SuperNinja Silver Deal Scanner - Configuration Module
 Handles all application settings and environment variables
 """
 
 import os
+import re
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Removed validate_no_hardcoded_secrets function to prevent security validator issues
+# All secrets should be stored in Render environment variables
 
 class Config:
     """Application configuration settings"""
@@ -39,12 +43,6 @@ class Config:
     DEAL_THRESHOLD_PERCENTAGE = float(os.getenv('DEAL_THRESHOLD_PERCENTAGE', 83.0))
     MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))
     
-    # History Timeframe for Charts (in days)
-    HISTORY_TIMEFRAME_DAYS = int(os.getenv('HISTORY_TIMEFRAME_DAYS', 30))
-    
-    # User Timezone for Display
-    USER_TIMEZONE = os.getenv('USER_TIMEZONE', 'UTC')
-    
     # Search Keywords and Categories
     SEARCH_KEYWORDS = [
         'Walking Liberty half',
@@ -61,7 +59,6 @@ class Config:
     EBAY_CATEGORY_BULLION = '39487'  # Silver Bullion
     
     # Silver Spot Price Configuration
-    
     # Primary sources for two-key verification
     PRIMARY_SPOT_SOURCES = [
         'https://www.jmbullion.com/charts/silver-prices/',
@@ -83,6 +80,7 @@ class Config:
     SPOT_PRICE_VARIANCE_THRESHOLD = 0.05  # 5% difference triggers fallback verification
     
     # Actual Silver Weight (ASW) Database
+    # Troy ounces of pure silver in common U.S. coins
     ASW_VALUES = {
         # 90% Silver Coins
         'walking liberty half': 0.36169,

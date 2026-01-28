@@ -6,7 +6,7 @@ services:
     region: oregon
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --workers 1 --bind 0.0.0.0:$PORT --timeout 120
+    startCommand: gunicorn app:app --workers 1 --bind 0.0.0.0:$PORT
     healthCheckPath: /
     
     # Environment Variables
@@ -61,5 +61,5 @@ services:
 crons:
   - name: automated-scan
     schedule: "0 */4 * * *"  # Run every 4 hours
-    command: curl -X POST http://localhost:5000/api/scan
+    command: python -c "from app import deal_scanner; deal_scanner.perform_scan()"
     service: silver-scanner

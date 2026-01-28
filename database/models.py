@@ -56,8 +56,10 @@ class Deal(Base):
     qualified_at = Column(DateTime, default=datetime.utcnow)
     confidence = Column(Float)
     is_valid = Column(Boolean, default=True)
-    is_hidden = Column(Boolean, default=False)  # User manually hidden/archived
-    hidden_at = Column(DateTime)  # When the deal was hidden
+    
+    # User actions
+    is_hidden = Column(Boolean, default=False)
+    hidden_at = Column(DateTime)
     
     def __repr__(self):
         return f"<Deal {self.title[:50]}... ${self.cost_per_oz:.2f}/oz>"
@@ -185,44 +187,84 @@ class DatabaseManager:
         return self.Session()
     
     def save_deal(self, deal_data: Dict) -> bool:
-        """Save a deal to the database"""
+        """Save a deal to the database (UPSERT - insert or update)"""
         session = self.get_session()
         try:
-            # Check if deal already exists
+            # Check if deal already exists by item_id
             existing = session.query(Deal).filter_by(item_id=deal_data['item_id']).first()
+            
             if existing:
-                logger.info(f"Deal already exists: {deal_data['item_id']}")
-                return False
-            
-            deal = Deal(
-                item_id=deal_data['item_id'],
-                title=deal_data['title'],
-                price=deal_data['price'],
-                shipping_cost=deal_data['shipping_cost'],
-                total_cost=deal_data['total_cost'],
-                coin_type=deal_data.get('asw_info', {}).get('coin_type'),
-                coin_name=deal_data.get('asw_info', {}).get('coin_name'),
-                silver_weight_oz=deal_data.get('asw_info', {}).get('asw'),
-                quantity=deal_data.get('asw_info', {}).get('quantity', 1),
-                face_value=deal_data.get('asw_info', {}).get('face_value', 0.0),
-                spot_price=deal_data.get('metrics', {}).get('spot_price'),
-                cost_per_oz=deal_data.get('metrics', {}).get('cost_per_oz'),
-                discount_percent=deal_data.get('metrics', {}).get('discount_percent'),
-                savings_per_oz=deal_data.get('metrics', {}).get('savings_per_oz'),
-                threshold=deal_data.get('metrics', {}).get('threshold'),
-                seller_username=deal_data.get('seller_username'),
-                seller_feedback=deal_data.get('seller_feedback'),
-                condition=deal_data.get('condition'),
-                item_url=deal_data.get('item_url'),
-                image_url=deal_data.get('image_url'),
-                scan_id=deal_data.get('scan_id'),
-                confidence=deal_data.get('asw_info', {}).get('confidence')
-            )
-            
-            session.add(deal)
-            session.commit()
-            logger.info(f"Saved deal: {deal.title[:50]}...")
-            return True
+                # Preserve is_hidden flag during update
+                was_hidden = existing.is_hidden
+                hidden_at = existing.hidden_at
+                
+                logger.info(f"Updating existing deal: {deal_data['item_id']} (hidden={was_hidden})")
+                
+                # Update all fields except is_hidden and hidden_at
+                existing.title = deal_data['title']
+                existing.price = deal_data['price']
+                existing.shipping_cost = deal_data['shipping_cost']
+                existing.total_cost = deal_data['total_cost']
+                existing.coin_type = deal_data.get('asw_info', {}).get('coin_type')
+                existing.coin_name = deal_data.get('asw_info', {}).get('coin_name')
+                existing.silver_weight_oz = deal_data.get('asw_info', {}).get('asw')
+                existing.quantity = deal_data.get('asw_info', {}).get('quantity', 1)
+                existing.face_value = deal_data.get('asw_info', {}).get('face_value', 0.0)
+                existing.spot_price = deal_data.get('metrics', {}).get('spot_price')
+                existing.cost_per_oz = deal_data.get('metrics', {}).get('cost_per_oz')
+                existing.discount_percent = deal_data.get('metrics', {}).get('discount_percent')
+                existing.savings_per_oz = deal_data.get('metrics', {}).get('savings_per_oz')
+                existing.threshold = deal_data.get('metrics', {}).get('threshold')
+                existing.seller_username = deal_data.get('seller_username')
+                existing.seller_feedback = deal_data.get('seller_feedback')
+                existing.condition = deal_data.get('condition')
+                existing.item_url = deal_data.get('item_url')
+                existing.image_url = deal_data.get('image_url')
+                existing.time_listed = deal_data.get('time_listed')
+                existing.scan_id = deal_data.get('scan_id')
+                existing.confidence = deal_data.get('asw_info', {}).get('confidence')
+                
+                # Preserve is_hidden flag
+                existing.is_hidden = was_hidden
+                existing.hidden_at = hidden_at
+                
+                session.commit()
+                logger.info(f"Updated deal: {existing.title[:50]}...")
+                return True
+            else:
+                # Insert new deal
+                deal = Deal(
+                    item_id=deal_data['item_id'],
+                    title=deal_data['title'],
+                    price=deal_data['price'],
+                    shipping_cost=deal_data['shipping_cost'],
+                    total_cost=deal_data['total_cost'],
+                    coin_type=deal_data.get('asw_info', {}).get('coin_type'),
+                    coin_name=deal_data.get('asw_info', {}).get('coin_name'),
+                    silver_weight_oz=deal_data.get('asw_info', {}).get('asw'),
+                    quantity=deal_data.get('asw_info', {}).get('quantity', 1),
+                    face_value=deal_data.get('asw_info', {}).get('face_value', 0.0),
+                    spot_price=deal_data.get('metrics', {}).get('spot_price'),
+                    cost_per_oz=deal_data.get('metrics', {}).get('cost_per_oz'),
+                    discount_percent=deal_data.get('metrics', {}).get('discount_percent'),
+                    savings_per_oz=deal_data.get('metrics', {}).get('savings_per_oz'),
+                    threshold=deal_data.get('metrics', {}).get('threshold'),
+                    seller_username=deal_data.get('seller_username'),
+                    seller_feedback=deal_data.get('seller_feedback'),
+                    condition=deal_data.get('condition'),
+                    item_url=deal_data.get('item_url'),
+                    image_url=deal_data.get('image_url'),
+                    time_listed=deal_data.get('time_listed'),
+                    scan_id=deal_data.get('scan_id'),
+                    confidence=deal_data.get('asw_info', {}).get('confidence'),
+                    is_hidden=False,
+                    hidden_at=None
+                )
+                
+                session.add(deal)
+                session.commit()
+                logger.info(f"Saved new deal: {deal.title[:50]}...")
+                return True
             
         except Exception as e:
             session.rollback()
@@ -263,12 +305,10 @@ class DatabaseManager:
             session.close()
     
     def get_recent_deals(self, limit: int = 50) -> list:
-        """Get recent deals from database"""
+        """Get recent deals from database (excluding hidden deals)"""
         session = self.get_session()
         try:
-            deals = session.query(Deal).filter(
-                Deal.is_hidden == False
-            ).order_by(
+            deals = session.query(Deal).filter_by(is_hidden=False).order_by(
                 Deal.qualified_at.desc()
             ).limit(limit).all()
             
@@ -487,80 +527,6 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def hide_deal(self, item_id: str) -> bool:
-        """Hide a deal (archive it from view)"""
-        session = self.get_session()
-        try:
-            deal = session.query(Deal).filter_by(item_id=item_id).first()
-            if deal:
-                deal.is_hidden = True
-                deal.hidden_at = datetime.utcnow()
-                session.commit()
-                logger.info(f"Deal hidden: {item_id}")
-                return True
-            return False
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Error hiding deal: {e}")
-            return False
-        finally:
-            session.close()
-    
-    def unhide_deal(self, item_id: str) -> bool:
-        """Unhide a deal (restore it to view)"""
-        session = self.get_session()
-        try:
-            deal = session.query(Deal).filter_by(item_id=item_id).first()
-            if deal:
-                deal.is_hidden = False
-                deal.hidden_at = None
-                session.commit()
-                logger.info(f"Deal unhidden: {item_id}")
-                return True
-            return False
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Error unhiding deal: {e}")
-            return False
-        finally:
-            session.close()
-    
-    def get_hidden_deals(self, limit: int = 50) -> list:
-        """Get hidden/archived deals"""
-        session = self.get_session()
-        try:
-            deals = session.query(Deal).filter(
-                Deal.is_hidden == True
-            ).order_by(
-                Deal.hidden_at.desc()
-            ).limit(limit).all()
-            
-            return [self._deal_to_dict(deal) for deal in deals]
-        except Exception as e:
-            logger.error(f"Error getting hidden deals: {e}")
-            return []
-        finally:
-            session.close()
-    
-    def cleanup_expired_deals(self) -> int:
-        """Remove deals that are no longer active on eBay (older than 7 days)"""
-        session = self.get_session()
-        try:
-            cutoff = datetime.utcnow() - timedelta(days=7)
-            expired_deals = session.query(Deal).filter(
-                Deal.qualified_at < cutoff
-            ).delete()
-            
-            session.commit()
-            logger.info(f"Cleaned up {expired_deals} expired deals")
-            return expired_deals
-        except Exception as e:
-            session.rollback()
-            logger.error(f"Error cleaning up expired deals: {e}")
-            return 0
-        finally:
-            session.close()
-    
     def get_last_scan(self):
         """Get the most recent scan record from scan_history table"""
         session = self.get_session()
@@ -570,24 +536,11 @@ class DatabaseManager:
             ).first()
             
             if last_scan:
-                # Calculate duration if end_time is available
+                # Calculate duration if both start_time and end_time exist
                 duration = None
-                if last_scan.end_time:
-                    diff = last_scan.end_time - last_scan.start_time
-                    seconds = diff.total_seconds()
-                    if seconds < 60:
-                        duration = f"{int(seconds)}s"
-                    elif seconds < 3600:
-                        minutes = int(seconds / 60)
-                        seconds = int(seconds % 60)
-                        duration = f"{minutes}m {seconds}s"
-                    else:
-                        hours = int(seconds / 3600)
-                        minutes = int((seconds % 3600) / 60)
-                        duration = f"{hours}h {minutes}m"
-                    
-                    # Add duration to the object
-                    last_scan.duration = duration
+                if last_scan.start_time and last_scan.end_time:
+                    duration_seconds = (last_scan.end_time - last_scan.start_time).total_seconds()
+                    last_scan.duration = duration_seconds
                 
                 logger.debug(f"Last scan from database: {last_scan.scan_id} at {last_scan.start_time}")
             else:
@@ -652,5 +605,111 @@ class DatabaseManager:
         except Exception as e:
             logger.error(f"Error getting all settings: {e}")
             return {}
+        finally:
+            session.close()
+    
+    def expunge_stale_hidden_deals(self, current_scan_item_ids: set) -> int:
+        """
+        Remove hidden deals that are no longer in the current scan results.
+        
+        This is the "Expunge" routine - garbage collection for hidden deals.
+        When a hidden deal is no longer found in active eBay listings (sold/expired),
+        it gets deleted from the database to keep it lean.
+        
+        Args:
+            current_scan_item_ids: Set of item IDs from the current scan
+            
+        Returns:
+            Number of deals expunged
+        """
+        session = self.get_session()
+        try:
+            # Get all hidden deals
+            hidden_deals = session.query(Deal).filter_by(is_hidden=True).all()
+            
+            if not hidden_deals:
+                logger.debug("No hidden deals to check for expunging")
+                return 0
+            
+            # Find hidden deals not in current scan
+            stale_deals = []
+            for deal in hidden_deals:
+                if deal.item_id not in current_scan_item_ids:
+                    stale_deals.append(deal)
+            
+            # Delete stale hidden deals
+            expunged_count = 0
+            for deal in stale_deals:
+                logger.info(f"Expunging stale hidden deal: {deal.title[:50]}... (item_id: {deal.item_id})")
+                session.delete(deal)
+                expunged_count += 1
+            
+            session.commit()
+            
+            if expunged_count > 0:
+                logger.info(f"Expunged {expunged_count} stale hidden deals (sold/expired)")
+            else:
+                logger.debug(f"All {len(hidden_deals)} hidden deals are still active")
+            
+            return expunged_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error expunging stale hidden deals: {e}")
+            return 0
+        finally:
+            session.close()
+    
+    def hide_deal(self, item_id: str) -> bool:
+        """Hide a deal from the dashboard"""
+        session = self.get_session()
+        try:
+            deal = session.query(Deal).filter_by(item_id=item_id).first()
+            if deal:
+                deal.is_hidden = True
+                deal.hidden_at = datetime.utcnow()
+                session.commit()
+                logger.info(f"Hidden deal: {deal.title[:50]}... (item_id: {item_id})")
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error hiding deal: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def unhide_deal(self, item_id: str) -> bool:
+        """Restore a hidden deal to the dashboard"""
+        session = self.get_session()
+        try:
+            deal = session.query(Deal).filter_by(item_id=item_id).first()
+            if deal:
+                deal.is_hidden = False
+                deal.hidden_at = None
+                session.commit()
+                logger.info(f"Unhidden deal: {deal.title[:50]}... (item_id: {item_id})")
+                return True
+            return False
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error unhiding deal: {e}")
+            return False
+        finally:
+            session.close()
+    
+    def get_hidden_deals(self) -> list:
+        """Get all hidden deals"""
+        session = self.get_session()
+        try:
+            deals = session.query(Deal).filter_by(is_hidden=True).order_by(
+                Deal.hidden_at.desc()
+            ).all()
+            
+            return [self._deal_to_dict(deal) for deal in deals]
+            
+        except Exception as e:
+            logger.error(f"Error getting hidden deals: {e}")
+            return []
         finally:
             session.close()
