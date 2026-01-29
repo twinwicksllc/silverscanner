@@ -1012,7 +1012,7 @@ def api_scan_status():
             'scan_error': scan_state['scan_error'],
             'recent_deals_count': len(scan_state['scan_results']),
             'duration': duration_str,
-            'items_scanned': last_scan_record.items_scanned if last_scan_record else None
+            'items_scanned': last_scan_record.total_listings_scanned if last_scan_record else None
         }
     })
 
