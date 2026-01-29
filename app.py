@@ -366,13 +366,30 @@ def api_scan_status():
     last_scan_record = db_manager.get_last_scan()
     last_scan_time = last_scan_record.start_time.isoformat() if last_scan_record else None
     
+    # Format duration if available
+    duration_str = None
+    if last_scan_record and last_scan_record.duration:
+        seconds = last_scan_record.duration
+        if seconds < 60:
+            duration_str = f"{int(seconds)}s"
+        elif seconds < 3600:
+            mins = int(seconds // 60)
+            secs = int(seconds % 60)
+            duration_str = f"{mins}m {secs}s" if secs else f"{mins}m"
+        else:
+            hours = int(seconds // 3600)
+            mins = int((seconds % 3600) // 60)
+            duration_str = f"{hours}h {mins}m"
+    
     return jsonify({
         'success': True,
         'data': {
             'is_scanning': scan_state['is_scanning'],
             'last_scan_time': last_scan_time,
             'scan_error': scan_state['scan_error'],
-            'recent_deals_count': len(scan_state['scan_results'])
+            'recent_deals_count': len(scan_state['scan_results']),
+            'duration': duration_str,
+            'items_scanned': last_scan_record.total_listings_scanned if last_scan_record else None
         }
     })
 
@@ -982,41 +999,6 @@ def api_deals():
 
 
 
-@app.route('/api/scan/status')
-def api_scan_status():
-    """API endpoint to get scan status"""
-    # Get last scan from database
-    last_scan_record = db_manager.get_last_scan()
-    last_scan_time = last_scan_record.start_time.isoformat() if last_scan_record else None
-    
-    # Format duration if available
-    duration_str = None
-    if last_scan_record and last_scan_record.duration:
-        seconds = last_scan_record.duration
-        if seconds < 60:
-            duration_str = f"{int(seconds)}s"
-        elif seconds < 3600:
-            mins = int(seconds // 60)
-            secs = int(seconds % 60)
-            duration_str = f"{mins}m {secs}s" if secs else f"{mins}m"
-        else:
-            hours = int(seconds // 3600)
-            mins = int((seconds % 3600) // 60)
-            duration_str = f"{hours}h {mins}m"
-    
-    return jsonify({
-        'success': True,
-        'data': {
-            'is_scanning': scan_state['is_scanning'],
-            'last_scan_time': last_scan_time,
-            'scan_error': scan_state['scan_error'],
-            'recent_deals_count': len(scan_state['scan_results']),
-            'duration': duration_str,
-            'items_scanned': last_scan_record.total_listings_scanned if last_scan_record else None
-        }
-    })
-
-    return render_template('settings.html', config=Config)
 
 @app.route('/api/settings', methods=['POST'])
 def api_settings():
