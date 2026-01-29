@@ -398,6 +398,11 @@ def settings():
     """Settings page"""
     return render_template('settings.html', config=Config)
 
+@app.route('/test-route')
+def test_route():
+    """Test route"""
+    return jsonify({'status': 'test route working'})
+
 @app.route('/api/settings', methods=['POST'])
 def api_settings():
     """API endpoint to update settings"""
