@@ -193,7 +193,7 @@
 
             <!-- Action Buttons -->
             <div class="settings-actions">
-                <button type="submit" form="settings-form" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary">
                     💾 Save Settings
                 </button>
                 <a href="/" class="btn btn-secondary">
@@ -221,6 +221,7 @@
                 </div>
                 {% endif %}
             </section>
+            </form>
         </div>
     </main>
 
@@ -233,5 +234,44 @@
 
     <!-- JavaScript -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        // Handle settings form submission via AJAX
+        document.getElementById('settings-form').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // Collect form data
+            const formData = {
+                threshold_percentage: document.getElementById('threshold_percentage').value,
+                min_seller_feedback: document.getElementById('min_seller_feedback').value,
+                scan_interval: document.getElementById('scan_interval').value,
+                user_timezone: document.getElementById('user_timezone').value
+            };
+            
+            // Send to API
+            fetch('/api/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Settings saved successfully!');
+                    // Reload page to show updated values
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 500);
+                } else {
+                    alert('Error saving settings: ' + (data.message || 'Unknown error'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error saving settings: ' + error.message);
+            });
+        });
+    </script>
 </body>
 </html>

@@ -69,6 +69,10 @@ try:
 except Exception as e:
     logger.error(f"Error initializing components: {e}")
 
+# Load settings from database immediately after initialization
+# This runs every time the app is imported (including by Gunicorn)
+load_settings_from_database()
+
 # Global scan state
 scan_state = {
     'last_scan_time': None,
@@ -539,9 +543,6 @@ if __name__ == '__main__':
     import os
     os.makedirs(Config.LOG_PATH, exist_ok=True)
     os.makedirs(os.path.dirname(Config.DATABASE_PATH), exist_ok=True)
-    
-    # Load settings from database
-    load_settings_from_database()
     
     # Validate configuration
     config_errors = Config.validate()
