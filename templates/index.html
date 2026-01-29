@@ -83,7 +83,7 @@
                     {% elif scan_details %}
                         {{ scan_details.duration or 'N/A' }}
                     {% else %}
-                        N/A
+                        <span id="scan-duration">N/A</span>
                     {% endif %}
                 </div>
                 <div class="subtext">
@@ -92,7 +92,7 @@
                     {% elif scan_details %}
                         {{ scan_details.items_scanned }} items checked
                     {% else %}
-                        Ready
+                        <span id="items-scanned">Ready</span>
                     {% endif %}
                 </div>
             </div>
