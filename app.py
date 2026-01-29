@@ -91,8 +91,14 @@ def index():
         price_info = None
         
         if latest_price:
+            # Calculate threshold based on current spot price and settings
+            threshold_percentage = Config.DEAL_THRESHOLD_PERCENTAGE
+            threshold_value = latest_price.price * (threshold_percentage / 100.0)
+            
             price_info = {
                 'spot_price': latest_price.price,
+                'threshold': threshold_value,
+                'threshold_percentage': threshold_percentage,
                 'source': latest_price.source,
                 'last_update': latest_price.timestamp,
                 'verified': True
@@ -112,7 +118,17 @@ def index():
             duration = None
             if last_scan_record.end_time and last_scan_record.start_time:
                 duration_seconds = (last_scan_record.end_time - last_scan_record.start_time).total_seconds()
-                duration = f"{duration_seconds:.0f}s"
+                # Format duration as Xs, Xm Ys, or Xh Ym
+                if duration_seconds < 60:
+                    duration = f"{int(duration_seconds)}s"
+                elif duration_seconds < 3600:
+                    mins = int(duration_seconds // 60)
+                    secs = int(duration_seconds % 60)
+                    duration = f"{mins}m {secs}s" if secs > 0 else f"{mins}m"
+                else:
+                    hours = int(duration_seconds // 3600)
+                    mins = int((duration_seconds % 3600) // 60)
+                    duration = f"{hours}h {mins}m" if mins > 0 else f"{hours}h"
             
             scan_details = {
                 'items_scanned': last_scan_record.total_listings_scanned or 0,
@@ -121,6 +137,7 @@ def index():
             }
         
         return render_template('index.html',
+                             config=Config,
                              price_info=price_info,
                              recent_deals=recent_deals,
                              last_scan=last_scan,

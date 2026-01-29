@@ -56,7 +56,7 @@
             </div>
 
             <div class="price-card">
-                <h3>Deal Threshold (83%)</h3>
+                <h3>Deal Threshold ({{ config.DEAL_THRESHOLD_PERCENTAGE }}%)</h3>
                 <div class="value dollar" id="threshold-price">
                     {% if price_info and price_info.threshold %}
                         ${{ "%.2f"|format(price_info.threshold) }}
@@ -80,13 +80,17 @@
                 <div class="value">
                     {% if is_scanning %}
                         <span class="loading"></span>
+                    {% elif scan_details %}
+                        {{ scan_details.duration or 'N/A' }}
                     {% else %}
-                        ✓
+                        N/A
                     {% endif %}
                 </div>
                 <div class="subtext">
                     {% if is_scanning %}
                         Scanning...
+                    {% elif scan_details %}
+                        {{ scan_details.items_scanned }} items checked
                     {% else %}
                         Ready
                     {% endif %}
