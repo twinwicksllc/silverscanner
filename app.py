@@ -561,6 +561,116 @@ def run_migration():
             'error': str(e)
         }), 500
 
+
+
+@app.route('/admin/migrate/hidden_columns', methods=['POST'])
+def migrate_hidden_columns():
+    """
+    Admin endpoint to add is_hidden and hidden_at columns to deals table
+    This can be called on Render to update the database schema
+
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/hidden_columns \\
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+
+    # Simple security check - require a secret key
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+
+    database_url = os.getenv('DATABASE_URL')
+
+    if not database_url:
+        return jsonify({
+            'success': False,
+            'error': 'DATABASE_URL not configured'
+        }), 500
+
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(database_url)
+
+        results = []
+
+        with engine.connect() as conn:
+            # Check and add is_hidden column
+            check_sql = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'deals'
+            AND column_name = 'is_hidden';
+            """
+
+            result = conn.execute(text(check_sql))
+            existing = result.fetchone()
+
+            if not existing:
+                logger.info("Adding is_hidden column to deals table...")
+
+                alter_sql = """
+                ALTER TABLE deals
+                ADD COLUMN is_hidden BOOLEAN DEFAULT FALSE;
+                """
+
+                conn.execute(text(alter_sql))
+                conn.commit()
+
+                results.append('is_hidden column added')
+            else:
+                logger.info("is_hidden column already exists - skipping")
+                results.append('is_hidden column already exists')
+
+            # Check and add hidden_at column
+            check_sql = """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_name = 'deals'
+            AND column_name = 'hidden_at';
+            """
+
+            result = conn.execute(text(check_sql))
+            existing = result.fetchone()
+
+            if not existing:
+                logger.info("Adding hidden_at column to deals table...")
+
+                alter_sql = """
+                ALTER TABLE deals
+                ADD COLUMN hidden_at TIMESTAMP;
+                """
+
+                conn.execute(text(alter_sql))
+                conn.commit()
+
+                results.append('hidden_at column added')
+            else:
+                logger.info("hidden_at column already exists - skipping")
+                results.append('hidden_at column already exists')
+
+            engine.dispose()
+
+            logger.info(f"Hidden columns migration completed: {results}")
+
+            return jsonify({
+                'success': True,
+                'message': 'Successfully migrated hidden columns',
+                'action': 'completed',
+                'results': results
+            })
+
+    except Exception as e:
+        logger.error(f"Hidden columns migration failed: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.errorhandler(500)
 def server_error(error):
     logger.error(f"Server error: {error}")
@@ -1072,62 +1182,3 @@ def run_migration():
             'error': str(e)
         }), 500
 
-@app.errorhandler(500)
-def server_error(error):
-    logger.error(f"Server error: {error}")
-    return render_template('500.html'), 500
-
-    """Load settings from database and update Config"""
-    try:
-        settings = db_manager.get_all_settings()
-        
-        if 'DEAL_THRESHOLD_PERCENTAGE' in settings:
-            Config.DEAL_THRESHOLD_PERCENTAGE = float(settings['DEAL_THRESHOLD_PERCENTAGE'])
-            logger.info(f"Loaded DEAL_THRESHOLD_PERCENTAGE: {Config.DEAL_THRESHOLD_PERCENTAGE}")
-            
-        if 'SCAN_INTERVAL_MINUTES' in settings:
-            Config.SCAN_INTERVAL_MINUTES = int(settings['SCAN_INTERVAL_MINUTES'])
-            logger.info(f"Loaded SCAN_INTERVAL_MINUTES: {Config.SCAN_INTERVAL_MINUTES}")
-            
-        if 'MIN_SELLER_FEEDBACK' in settings:
-            Config.MIN_SELLER_FEEDBACK = float(settings['MIN_SELLER_FEEDBACK'])
-            logger.info(f"Loaded MIN_SELLER_FEEDBACK: {Config.MIN_SELLER_FEEDBACK}")
-            
-        if 'USER_TIMEZONE' in settings:
-            Config.USER_TIMEZONE = settings['USER_TIMEZONE']
-            logger.info(f"Loaded USER_TIMEZONE: {Config.USER_TIMEZONE}")
-            
-        logger.info("Settings loaded from database successfully")
-        
-    except Exception as e:
-        logger.warning(f"Could not load settings from database: {e}")
-        logger.info("Using default configuration values")
-
-
-if __name__ == '__main__':
-    # Create required directories
-    import os
-    os.makedirs(Config.LOG_PATH, exist_ok=True)
-    os.makedirs(os.path.dirname(Config.DATABASE_PATH), exist_ok=True)
-    
-    # Validate configuration
-    config_errors = Config.validate()
-    if config_errors:
-        logger.warning("Configuration validation warnings:")
-        for error in config_errors:
-            logger.warning(f"  - {error}")
-    
-    # Start digest scheduler
-    try:
-        digest_scheduler.start()
-        logger.info("Digest scheduler started successfully")
-    except Exception as e:
-        logger.error(f"Failed to start digest scheduler: {e}")
-
-
-    finally:
-        # Stop scheduler on shutdown
-        try:
-            digest_scheduler.stop()
-        except:
-            pass
