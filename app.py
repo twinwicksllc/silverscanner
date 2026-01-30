@@ -6,7 +6,7 @@ Web interface and API endpoints
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 import logging
 from datetime import datetime, timedelta
-/api/scan/status
+
 # Initialize Flask app FIRST
 app = Flask(__name__)
 
