@@ -69,6 +69,37 @@ try:
 except Exception as e:
     logger.error(f"Error initializing components: {e}")
 
+# Load settings from database immediately after initialization
+# This runs every time the app is imported (including by Gunicorn)
+def load_settings_from_database_early():
+    """Load settings from database and update Config"""
+    try:
+        settings = db_manager.get_all_settings()
+        
+        if 'DEAL_THRESHOLD_PERCENTAGE' in settings:
+            Config.DEAL_THRESHOLD_PERCENTAGE = float(settings['DEAL_THRESHOLD_PERCENTAGE'])
+            logger.info(f"Loaded DEAL_THRESHOLD_PERCENTAGE: {Config.DEAL_THRESHOLD_PERCENTAGE}")
+            
+        if 'SCAN_INTERVAL_MINUTES' in settings:
+            Config.SCAN_INTERVAL_MINUTES = int(settings['SCAN_INTERVAL_MINUTES'])
+            logger.info(f"Loaded SCAN_INTERVAL_MINUTES: {Config.SCAN_INTERVAL_MINUTES}")
+            
+        if 'MIN_SELLER_FEEDBACK' in settings:
+            Config.MIN_SELLER_FEEDBACK = float(settings['MIN_SELLER_FEEDBACK'])
+            logger.info(f"Loaded MIN_SELLER_FEEDBACK: {Config.MIN_SELLER_FEEDBACK}")
+            
+        if 'USER_TIMEZONE' in settings:
+            Config.USER_TIMEZONE = settings['USER_TIMEZONE']
+            logger.info(f"Loaded USER_TIMEZONE: {Config.USER_TIMEZONE}")
+            
+        logger.info("Settings loaded from database successfully")
+        
+    except Exception as e:
+        logger.warning(f"Could not load settings from database: {e}")
+        logger.info("Using default configuration values")
+
+load_settings_from_database_early()
+
 # Global scan state
 scan_state = {
     'last_scan_time': None,

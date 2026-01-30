@@ -136,14 +136,24 @@ async function startScan() {
         console.log('Response data:', data);
         
         if (data.success) {
-            // Refresh data after successful scan
+            console.log('Scan started successfully, polling for completion');
+            // Poll for scan completion
+            await pollForScanComplete();
+            
+            // Refresh data after scan completes
             await Promise.all([
+                fetchScanStatus(),
                 fetchPriceInfo(),
                 fetchDeals()
             ]);
             
+            // Get the actual deals count from the latest scan
+            const scanStatus = await fetch('/api/scan/status');
+            const scanData = await scanStatus.json();
+            const dealsFound = scanData.data?.deals_found || AppState.deals.length;
+            
             showNotification(
-                `Scan complete! Found ${data.data.deals_found} deals`,
+                `Scan complete! Found ${dealsFound} deals`,
                 'success'
             );
         } else {
@@ -159,6 +169,32 @@ async function startScan() {
         updateScanStatus();
         updateScanButton();
     }
+}
+
+async function pollForScanComplete() {
+    // Poll scan status every 2 seconds until scanning is complete
+    const maxPolls = 60; // Max 2 minutes of polling
+    let pollCount = 0;
+    
+    while (pollCount < maxPolls) {
+        try {
+            const response = await fetch('/api/scan/status');
+            const data = await response.json();
+            
+            if (data.success &amp;&amp; !data.data.is_scanning) {
+                // Scan is complete
+                console.log('Scan completed after', pollCount * 2, 'seconds');
+                return;
+            }
+        } catch (error) {
+            console.error('Error polling scan status:', error);
+        }
+        
+        pollCount++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    console.warn('Polling timed out after', maxPolls * 2, 'seconds');
 }
 
 // UI Update Functions
@@ -313,7 +349,7 @@ function updateDealsTable() {
             <td>
                 ${deal.condition}
                 <br>
-                <small>${formatDateTime(deal.qualified_at)}</small>
+                <small>Listed ${deal.time_since_listed || 'Unknown'}</small>
             </td>
         `;
         
