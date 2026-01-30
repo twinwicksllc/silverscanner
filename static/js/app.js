@@ -352,7 +352,7 @@ function updateDealsTable() {
                 <small>${deal.seller_username}</small>
             </td>
             <td>
-                ${deal.condition_tags &amp;&amp; deal.condition_tags.length > 0 ? deal.condition_tags.slice(0, 2).join(' | ') : deal.condition}
+                ${deal.condition_tags && deal.condition_tags.length > 0 ? deal.condition_tags.slice(0, 2).join(' | ') : deal.condition}
                 <br>
                 <small>Listed ${deal.time_since_listed || 'Unknown'}</small>
             </td>
