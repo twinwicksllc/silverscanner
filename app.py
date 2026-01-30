@@ -6,7 +6,7 @@ Web interface and API endpoints
 from flask import Flask, render_template, jsonify, request, redirect, url_for
 import logging
 from datetime import datetime, timedelta
-
+/api/scan/status
 # Initialize Flask app FIRST
 app = Flask(__name__)
 
@@ -330,14 +330,13 @@ def api_scan_status():
     
     return jsonify({
         'success': True,
-        'data': {
-            'is_scanning': scan_state['is_scanning'],
-            'last_scan_time': last_scan_time,
-            'scan_error': scan_state['scan_error'],
-            'recent_deals_count': len(scan_state['scan_results']),
-            'deals_found': deals_found,
-            'items_scanned': items_scanned
-        }
+        'is_scanning': scan_state['is_scanning'],
+        'last_scan_time': last_scan_time,
+        'scan_error': scan_state['scan_error'],
+        'recent_deals_count': len(scan_state['scan_results']),
+        'deals_found': deals_found,
+        'items_scanned': items_scanned,
+        'elapsed_time': None
     })
 
 @app.route('/settings')
