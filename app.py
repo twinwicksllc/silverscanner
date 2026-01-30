@@ -204,34 +204,36 @@ def api_price():
 def run_background_scan():
     """Background thread function to perform scan"""
     global scan_state
-    
+    scan_start = datetime.utcnow()
+    scan_state['scan_start_time'] = scan_start
+    scan_state['items_scanned'] = 0
+    scan_state['elapsed_time'] = 0
+    scan_state['scan_error'] = None
+
     try:
         logger.info("Background scan started")
-        scan_start = datetime.utcnow()
-        scan_state['scan_start_time'] = scan_start
-        scan_state['items_scanned'] = 0
-        scan_state['elapsed_time'] = 0
-        
+        scan_state['is_scanning'] = True
+
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
         logger.info("Fetching fresh spot price for scan...")
         spot_price.get_price_info()
         logger.info("Spot price fetch complete")
-        
+
         # Perform scan
         deals = deal_scanner.perform_scan()
         total_items_scanned = deal_scanner.items_scanned
-        
+
         # Save deals to database
         saved_count = 0
         for deal in deals:
             if db_manager.save_deal(deal):
                 saved_count += 1
-        
+
         # Save scan history
         summary = deal_scanner.get_deal_summary()
         scan_id = summary.get('scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
         scan_end = datetime.utcnow()
-        
+
         db_manager.save_scan_history({
             'scan_id': scan_id,
             'start_time': scan_start,
@@ -246,20 +248,24 @@ def run_background_scan():
             'total_savings': summary.get('total_savings', 0),
             'status': 'completed'
         })
-        
+
         # Update scan state
         scan_state['last_scan_time'] = datetime.now().isoformat()
         scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
         scan_state['items_scanned'] = total_items_scanned
-        scan_state['elapsed_time'] = int((datetime.utcnow() - scan_start).total_seconds())
-        scan_state['is_scanning'] = False
-        
         logger.info(f"Background scan complete: {len(deals)} deals found, {saved_count} saved to database")
-        
+
     except Exception as e:
         logger.error(f"Error during background scan: {e}")
-        scan_state['is_scanning'] = False
         scan_state['scan_error'] = str(e)
+    finally:
+        if scan_start:
+            scan_state['elapsed_time'] = int((datetime.utcnow() - scan_start).total_seconds())
+        else:
+            scan_state['elapsed_time'] = scan_state.get('elapsed_time', 0)
+        scan_state['is_scanning'] = False
+        scan_state['scan_start_time'] = None
+        logger.info("Background scan flag cleared")
 
 
 @app.route('/api/scan', methods=['POST'])
