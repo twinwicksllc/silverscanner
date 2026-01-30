@@ -52,7 +52,12 @@ class Config:
         'Morgan dollar',
         'Constitutional silver',
         'Silver half dollars',
-        'Silver dollars'
+        'Silver dollars',
+        '90% silver quarters',
+        'Mercury dimes',
+        'Roosevelt silver dimes',
+        'Silver coins face value',
+        'Junk silver lot'
     ]
     
     EBAY_CATEGORY_COINS = '112862'  # Coins & Paper Money
