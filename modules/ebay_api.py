@@ -151,7 +151,7 @@ class eBayAPI:
             title = item.get('title', '')
             
             # Anti-scam filter - skip items with scam keywords
-            scam_keywords = ['replica', 'plated', 'clad', 'copy', 'tribute', 'repair', 'parts', 'junk']
+            scam_keywords = ['replica', 'plated', 'clad', 'copy', 'tribute', 'repair', 'parts']
             title_lower = title.lower()
             if any(keyword in title_lower for keyword in scam_keywords):
                 logger.debug(f"Skipping scam item: {title[:50]}...")
