@@ -105,7 +105,10 @@ scan_state = {
     'last_scan_time': None,
     'is_scanning': False,
     'scan_results': [],
-    'scan_error': None
+    'scan_error': None,
+    'items_scanned': 0,
+    'elapsed_time': 0,
+    'scan_start_time': None
 }
 
 @app.route('/healthz')
@@ -205,6 +208,9 @@ def run_background_scan():
     try:
         logger.info("Background scan started")
         scan_start = datetime.utcnow()
+        scan_state['scan_start_time'] = scan_start
+        scan_state['items_scanned'] = 0
+        scan_state['elapsed_time'] = 0
         
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
         logger.info("Fetching fresh spot price for scan...")
@@ -243,6 +249,8 @@ def run_background_scan():
         # Update scan state
         scan_state['last_scan_time'] = datetime.now().isoformat()
         scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
+        scan_state['items_scanned'] = len(deals) + summary.get('total_deals', 0)
+        scan_state['elapsed_time'] = int((datetime.utcnow() - scan_start).total_seconds())
         scan_state['is_scanning'] = False
         
         logger.info(f"Background scan complete: {len(deals)} deals found, {saved_count} saved to database")
@@ -327,6 +335,12 @@ def api_scan_status():
     # Get scan metrics from last scan record
     deals_found = last_scan_record.qualified_deals_found if last_scan_record else 0
     items_scanned = last_scan_record.total_listings_scanned if last_scan_record else 0
+    elapsed = scan_state['elapsed_time']
+    
+    # During active scan, use real-time values from scan_state
+    if scan_state['is_scanning'] and scan_state['scan_start_time']:
+        elapsed = int((datetime.utcnow() - scan_state['scan_start_time']).total_seconds())
+        items_scanned = scan_state['items_scanned']
     
     return jsonify({
         'success': True,
@@ -336,7 +350,7 @@ def api_scan_status():
         'recent_deals_count': len(scan_state['scan_results']),
         'deals_found': deals_found,
         'items_scanned': items_scanned,
-        'elapsed_time': None
+        'elapsed_time': elapsed
     })
 
 @app.route('/settings')

@@ -180,14 +180,15 @@ async function pollForScanComplete() {
             const response = await fetch('/api/scan/status');
             const data = await response.json();
             
-            console.log(`Poll ${pollCount + 1}: is_scanning =`, data.is_scanning);
+            console.log('Polling Status:', data);
             
             if (data.success) {
-                // Update live counter
+                // Update live counter with elapsed time
                 if (data.items_scanned !== undefined) {
                     const itemsScannedEl = document.getElementById('items-scanned');
                     if (itemsScannedEl) {
-                        itemsScannedEl.textContent = data.items_scanned + ' items checked';
+                        const elapsed = data.elapsed_time || 0;
+                        itemsScannedEl.textContent = `${elapsed}s ${data.items_scanned} items checked`;
                     }
                 }
                 
@@ -199,7 +200,7 @@ async function pollForScanComplete() {
                     await fetchDeals();
                     await fetchPriceInfo();
                     
-                    // UI State Reset
+                    // UI State Reset - after all updates complete
                     AppState.isScanning = false;
                     updateScanButton();
                     
