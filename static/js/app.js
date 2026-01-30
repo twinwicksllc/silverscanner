@@ -180,8 +180,6 @@ async function pollForScanComplete() {
             const response = await fetch('/api/scan/status');
             const data = await response.json();
             
-            console.log('Polling Status:', data);
-            
             if (data.success) {
                 // Update live counter with elapsed time
                 if (data.items_scanned !== undefined) {
@@ -194,7 +192,6 @@ async function pollForScanComplete() {
                 
                 if (!data.is_scanning) {
                     // Scan is complete
-                    console.log('Scan completed after', (pollCount * 2) + 1, 'seconds');
                     
                     // Auto-refresh dashboard
                     await fetchDeals();
@@ -214,8 +211,6 @@ async function pollForScanComplete() {
         pollCount++;
         await new Promise(resolve => setTimeout(resolve, 2000));
     }
-    
-    console.warn('Polling timed out after', (maxPolls * 2) + 1, 'seconds');
 }
 
 // UI Update Functions
@@ -280,9 +275,9 @@ function updateScanStatus() {
     }
     
     if (itemsScannedEl) {
-        if (AppState.isScanning) {
-            itemsScannedEl.textContent = '0 items checked';
-        } else {
+        // Only reset during non-scanning states
+        // During scanning, pollForScanComplete will update this in real-time
+        if (!AppState.isScanning) {
             itemsScannedEl.textContent = 'Ready';
         }
     }

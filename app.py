@@ -219,6 +219,7 @@ def run_background_scan():
         
         # Perform scan
         deals = deal_scanner.perform_scan()
+        total_items_scanned = deal_scanner.items_scanned
         
         # Save deals to database
         saved_count = 0
@@ -237,7 +238,7 @@ def run_background_scan():
             'end_time': scan_end,
             'spot_price': summary.get('spot_price', 0),
             'threshold': summary.get('threshold', 0),
-            'total_listings': len(deals) + summary.get('total_deals', 0),
+            'total_listings': total_items_scanned,
             'total_deals': summary.get('total_deals', 0),
             'items_rejected': 0,
             'best_discount': summary.get('best_discount', 0),
@@ -249,7 +250,7 @@ def run_background_scan():
         # Update scan state
         scan_state['last_scan_time'] = datetime.now().isoformat()
         scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
-        scan_state['items_scanned'] = len(deals) + summary.get('total_deals', 0)
+        scan_state['items_scanned'] = total_items_scanned
         scan_state['elapsed_time'] = int((datetime.utcnow() - scan_start).total_seconds())
         scan_state['is_scanning'] = False
         

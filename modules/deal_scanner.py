@@ -25,6 +25,7 @@ class DealScanner:
         self.db_manager = DatabaseManager()
         self.email_notifier = EmailNotifier(self.db_manager)
         self.scan_results = []
+        self.items_scanned = 0
         
     def perform_scan(self) -> List[Dict]:
         """
@@ -67,6 +68,9 @@ class DealScanner:
         current_scan_item_ids = set()  # Track all item IDs for expunge routine
         
         for item in raw_items:
+            # Count every item processed
+            self.items_scanned += 1
+            
             # Track item ID for expunge routine
             item_id = item.get('itemId')
             if item_id:
