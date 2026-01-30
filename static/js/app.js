@@ -85,8 +85,8 @@ async function fetchScanStatus() {
         const data = await response.json();
         
         if (data.success) {
-            AppState.isScanning = data.data.is_scanning;
-            AppState.lastScanTime = data.data.last_scan_time;
+            AppState.isScanning = data.is_scanning;
+            AppState.lastScanTime = data.last_scan_time;
             updateScanStatus();
         }
     } catch (error) {
@@ -146,7 +146,7 @@ async function startScan() {
             // Get the actual deals count from the latest scan
             const scanStatus = await fetch('/api/scan/status');
             const scanData = await scanStatus.json();
-            const dealsFound = scanData.data?.deals_found || AppState.deals.length;
+            const dealsFound = scanData.deals_found || AppState.deals.length;
             
             showNotification(
                 `Scan complete! Found ${dealsFound} deals`,
@@ -180,18 +180,18 @@ async function pollForScanComplete() {
             const response = await fetch('/api/scan/status');
             const data = await response.json();
             
-            console.log(`Poll ${pollCount + 1}: is_scanning =`, data.data?.is_scanning);
+            console.log(`Poll ${pollCount + 1}: is_scanning =`, data.is_scanning);
             
             if (data.success) {
                 // Update live counter
-                if (data.data.items_scanned !== undefined) {
+                if (data.items_scanned !== undefined) {
                     const itemsScannedEl = document.getElementById('items-scanned');
                     if (itemsScannedEl) {
-                        itemsScannedEl.textContent = data.data.items_scanned + ' items checked';
+                        itemsScannedEl.textContent = data.items_scanned + ' items checked';
                     }
                 }
                 
-                if (!data.data.is_scanning) {
+                if (!data.is_scanning) {
                     // Scan is complete
                     console.log('Scan completed after', (pollCount * 2) + 1, 'seconds');
                     
