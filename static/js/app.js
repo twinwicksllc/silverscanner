@@ -186,7 +186,7 @@ async function pollForScanComplete() {
             
             console.log(`Poll ${pollCount + 1}: is_scanning =`, data.data?.is_scanning);
             
-            if (data.success &amp;&amp; !data.data.is_scanning) {
+            if (data.success && !data.data.is_scanning) {
                 // Scan is complete
                 console.log('Scan completed after', (pollCount * 2) + 1, 'seconds');
                 return;
