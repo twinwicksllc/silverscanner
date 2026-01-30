@@ -140,12 +140,8 @@ async function startScan() {
             // Poll for scan completion
             await pollForScanComplete();
             
-            // Refresh data after scan completes
-            await Promise.all([
-                fetchScanStatus(),
-                fetchPriceInfo(),
-                fetchDeals()
-            ]);
+            // Refresh scan status after scan completes
+            await fetchScanStatus();
             
             // Get the actual deals count from the latest scan
             const scanStatus = await fetch('/api/scan/status');
@@ -186,10 +182,29 @@ async function pollForScanComplete() {
             
             console.log(`Poll ${pollCount + 1}: is_scanning =`, data.data?.is_scanning);
             
-            if (data.success && !data.data.is_scanning) {
-                // Scan is complete
-                console.log('Scan completed after', (pollCount * 2) + 1, 'seconds');
-                return;
+            if (data.success) {
+                // Update live counter
+                if (data.data.items_scanned !== undefined) {
+                    const itemsScannedEl = document.getElementById('items-scanned');
+                    if (itemsScannedEl) {
+                        itemsScannedEl.textContent = data.data.items_scanned + ' items checked';
+                    }
+                }
+                
+                if (!data.data.is_scanning) {
+                    // Scan is complete
+                    console.log('Scan completed after', (pollCount * 2) + 1, 'seconds');
+                    
+                    // Auto-refresh dashboard
+                    await fetchDeals();
+                    await fetchPriceInfo();
+                    
+                    // UI State Reset
+                    AppState.isScanning = false;
+                    updateScanButton();
+                    
+                    return;
+                }
             }
         } catch (error) {
             console.error('Error polling scan status:', error);
@@ -236,6 +251,7 @@ function updateScanStatus() {
     const statusIndicator = document.getElementById('status-indicator');
     const statusText = document.getElementById('status-text');
     const lastScanEl = document.getElementById('last-scan-time');
+    const itemsScannedEl = document.getElementById('items-scanned');
     
     if (statusIndicator) {
         statusIndicator.className = 'status-indicator';
@@ -259,6 +275,14 @@ function updateScanStatus() {
             lastScanEl.textContent = `Last scan: ${timeSince(AppState.lastScanTime)}`;
         } else {
             lastScanEl.textContent = 'Last scan: Never';
+        }
+    }
+    
+    if (itemsScannedEl) {
+        if (AppState.isScanning) {
+            itemsScannedEl.textContent = '0 items checked';
+        } else {
+            itemsScannedEl.textContent = 'Ready';
         }
     }
     
