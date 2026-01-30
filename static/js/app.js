@@ -9,9 +9,7 @@ const AppState = {
     lastScanTime: null,
     priceInfo: null,
     deals: [],
-    scanInterval: null,
-    scanDuration: null,
-    itemsScanned: null
+    scanInterval: null
 };
 
 // Utility functions
@@ -89,8 +87,6 @@ async function fetchScanStatus() {
         if (data.success) {
             AppState.isScanning = data.data.is_scanning;
             AppState.lastScanTime = data.data.last_scan_time;
-            AppState.scanDuration = data.data.duration;
-            AppState.itemsScanned = data.data.items_scanned;
             updateScanStatus();
         }
     } catch (error) {
@@ -140,19 +136,14 @@ async function startScan() {
         console.log('Response data:', data);
         
         if (data.success) {
-            console.log('Scan started successfully, polling for completion');
-            // Poll for scan status to get final results
-            await pollForScanComplete();
-            
-            // Refresh data after scan completes
+            // Refresh data after successful scan
             await Promise.all([
-                fetchScanStatus(),
                 fetchPriceInfo(),
                 fetchDeals()
             ]);
             
             showNotification(
-                'Scan complete!',
+                `Scan complete! Found ${data.data.deals_found} deals`,
                 'success'
             );
         } else {
@@ -168,48 +159,6 @@ async function startScan() {
         updateScanStatus();
         updateScanButton();
     }
-
-async function pollForScanComplete() {
-    // Poll scan status every 2 seconds until scanning is complete
-    const maxPolls = 60; // Max 2 minutes of polling
-    let pollCount = 0;
-    
-    while (pollCount < maxPolls) {
-        try {
-            const response = await fetch('/api/scan/status');
-            const data = await response.json();
-            
-            if (data.success && !data.data.is_scanning) {
-                // Scan is complete
-                return;
-            }
-        } catch (error) {
-            console.error('Error polling scan status:', error);
-        }
-        
-        pollCount++;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-    }
-} maxPolls) {
-        try {
-            const response = await fetch('/api/scan/status');
-            const data = await response.json();
-            
-            if (data.success && !data.data.is_scanning) {
-                // Scan is complete
-                return;
-            }
-        } catch (error) {
-            console.error('Error polling scan status:', error);
-        }
-        
-        // Wait 2 seconds before next poll
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        pollCount++;
-    }
-    
-    console.warn('Scan polling timeout reached');
-}
 }
 
 // UI Update Functions
@@ -246,8 +195,6 @@ function updateScanStatus() {
     const statusIndicator = document.getElementById('status-indicator');
     const statusText = document.getElementById('status-text');
     const lastScanEl = document.getElementById('last-scan-time');
-    const scanDurationEl = document.getElementById('scan-duration');
-    const itemsScannedEl = document.getElementById('items-scanned');
     
     if (statusIndicator) {
         statusIndicator.className = 'status-indicator';
@@ -271,22 +218,6 @@ function updateScanStatus() {
             lastScanEl.textContent = `Last scan: ${timeSince(AppState.lastScanTime)}`;
         } else {
             lastScanEl.textContent = 'Last scan: Never';
-        }
-    }
-    
-    if (scanDurationEl && !AppState.isScanning) {
-        if (AppState.scanDuration) {
-            scanDurationEl.textContent = AppState.scanDuration;
-        } else {
-            scanDurationEl.textContent = 'N/A';
-        }
-    }
-    
-    if (itemsScannedEl && !AppState.isScanning) {
-        if (AppState.itemsScanned) {
-            itemsScannedEl.textContent = `${AppState.itemsScanned} items checked`;
-        } else {
-            itemsScannedEl.textContent = 'Ready';
         }
     }
     
@@ -474,15 +405,11 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(fetchDeals, 60000); // Update deals every minute
     setInterval(updateTimeAgo, 1000); // Update timeago displays every second
     
-    // Scan buttons (multiple instances on the page)
-    const scanButtons = document.querySelectorAll('#scan-button, #first-scan-button');
-    scanButtons.forEach(button => {
-        button.addEventListener('click', function(e) {
-            e.preventDefault();
-            console.log('Scan button clicked');
-            startScan();
-        });
-    });
+    // Scan button
+    const scanButton = document.getElementById('scan-button');
+    if (scanButton) {
+        scanButton.addEventListener('click', startScan);
+    }
     
     // Settings form
     const settingsForm = document.getElementById('settings-form');
@@ -511,8 +438,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 if (data.success) {
                     showNotification('Settings updated successfully!', 'success');
-                    // Refresh price info to get updated threshold
-                    await fetchPriceInfo();
                 } else {
                     showNotification('Failed to update settings', 'error');
                 }
