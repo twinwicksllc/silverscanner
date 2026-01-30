@@ -91,8 +91,11 @@ def index():
         price_info = None
         
         if latest_price:
+            threshold_value = latest_price.price * (Config.DEAL_THRESHOLD_PERCENTAGE / 100.0)
             price_info = {
                 'spot_price': latest_price.price,
+                'threshold': threshold_value,
+                'threshold_percentage': Config.DEAL_THRESHOLD_PERCENTAGE,
                 'source': latest_price.source,
                 'last_update': latest_price.timestamp,
                 'verified': True

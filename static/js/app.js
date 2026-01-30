@@ -65,9 +65,12 @@ function timeSince(isoString) {
 
 // API Functions
 async function fetchPriceInfo() {
+    console.log('fetchPriceInfo() called');
     try {
         const response = await fetch('/api/price');
+        console.log('fetchPriceInfo response status:', response.status);
         const data = await response.json();
+        console.log('fetchPriceInfo data:', data);
         
         if (data.success) {
             AppState.priceInfo = data.data;
@@ -96,9 +99,12 @@ async function fetchScanStatus() {
 }
 
 async function fetchDeals() {
+    console.log('fetchDeals() called');
     try {
         const response = await fetch('/api/deals?limit=50');
+        console.log('fetchDeals response status:', response.status);
         const data = await response.json();
+        console.log('fetchDeals data:', data);
         
         if (data.success) {
             AppState.deals = data.data;
@@ -110,20 +116,31 @@ async function fetchDeals() {
 }
 
 async function startScan() {
-    if (AppState.isScanning) return;
+    console.log('startScan() called, isScanning:', AppState.isScanning);
+    if (AppState.isScanning) {
+        console.log('Scan already in progress, ignoring click');
+        return;
+    }
     
     try {
         AppState.isScanning = true;
         updateScanStatus();
         updateScanButton();
         
+        console.log('Sending POST request to /api/scan');
         const response = await fetch('/api/scan', {
-            method: 'POST'
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
         });
         
+        console.log('Response status:', response.status);
         const data = await response.json();
+        console.log('Response data:', data);
         
         if (data.success) {
+            console.log('Scan started successfully, polling for completion');
             // Poll for scan status to get final results
             await pollForScanComplete();
             
@@ -139,6 +156,7 @@ async function startScan() {
                 'success'
             );
         } else {
+            console.error('Scan failed:', data.error);
             showNotification(`Scan failed: ${data.error}`, 'error');
         }
         
@@ -456,11 +474,15 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(fetchDeals, 60000); // Update deals every minute
     setInterval(updateTimeAgo, 1000); // Update timeago displays every second
     
-    // Scan button
-    const scanButton = document.getElementById('scan-button');
-    if (scanButton) {
-        scanButton.addEventListener('click', startScan);
-    }
+    // Scan buttons (multiple instances on the page)
+    const scanButtons = document.querySelectorAll('#scan-button, #first-scan-button');
+    scanButtons.forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            console.log('Scan button clicked');
+            startScan();
+        });
+    });
     
     // Settings form
     const settingsForm = document.getElementById('settings-form');
