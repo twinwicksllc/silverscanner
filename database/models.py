@@ -327,14 +327,17 @@ class DatabaseManager:
         
         # Calculate time_since_listed
         time_since_listed = None
-        if deal.time_listed:
+        # Use time_listed if available, otherwise fall back to qualified_at
+        reference_time = deal.time_listed if deal.time_listed else deal.qualified_at
+        
+        if reference_time:
             try:
                 # Use user timezone if configured, otherwise UTC
                 user_timezone = Config.USER_TIMEZONE if hasattr(Config, 'USER_TIMEZONE') else 'UTC'
                 tz = pytz.timezone(user_timezone)
                 
                 now = datetime.now(tz)
-                listed = deal.time_listed.astimezone(tz) if deal.time_listed.tzinfo else tz.localize(deal.time_listed)
+                listed = reference_time.astimezone(tz) if reference_time.tzinfo else tz.localize(reference_time)
                 diff = now - listed
                 
                 seconds = diff.total_seconds()
@@ -350,12 +353,13 @@ class DatabaseManager:
                     days = int(seconds // 86400)
                     time_since_listed = f'{days}d ago'
                 else:
-                    time_since_listed = 'Unknown'
+                    weeks = int(seconds // 604800)
+                    time_since_listed = f'{weeks}w ago'
             except Exception as e:
                 logger.debug(f"Error calculating time_since_listed: {e}")
-                time_since_listed = 'Unknown'
+                time_since_listed = 'Just now'  # Fallback to 'Just now' instead of 'Unknown'
         else:
-            time_since_listed = 'Unknown'
+            time_since_listed = 'Just now'  # Fallback to 'Just now' instead of 'Unknown'
         
         # Parse condition tags from title
         condition_tags = []

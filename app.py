@@ -160,7 +160,8 @@ def index():
                              last_scan=last_scan,
                              scan_details=scan_details,
                              is_scanning=is_scanning,
-                             scan_error=scan_state['scan_error'])
+                             scan_error=scan_state['scan_error'],
+                             config=Config)
     
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
@@ -323,13 +324,19 @@ def api_scan_status():
     last_scan_record = db_manager.get_last_scan()
     last_scan_time = last_scan_record.start_time.isoformat() if last_scan_record else None
     
+    # Get scan metrics from last scan record
+    deals_found = last_scan_record.qualified_deals_found if last_scan_record else 0
+    items_scanned = last_scan_record.total_listings_scanned if last_scan_record else 0
+    
     return jsonify({
         'success': True,
         'data': {
             'is_scanning': scan_state['is_scanning'],
             'last_scan_time': last_scan_time,
             'scan_error': scan_state['scan_error'],
-            'recent_deals_count': len(scan_state['scan_results'])
+            'recent_deals_count': len(scan_state['scan_results']),
+            'deals_found': deals_found,
+            'items_scanned': items_scanned
         }
     })
 

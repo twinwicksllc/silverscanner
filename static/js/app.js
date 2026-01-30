@@ -172,6 +172,9 @@ async function startScan() {
 }
 
 async function pollForScanComplete() {
+    // Wait 1 second before starting to poll (give backend time to set is_scanning flag)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
     // Poll scan status every 2 seconds until scanning is complete
     const maxPolls = 60; // Max 2 minutes of polling
     let pollCount = 0;
@@ -181,9 +184,11 @@ async function pollForScanComplete() {
             const response = await fetch('/api/scan/status');
             const data = await response.json();
             
+            console.log(`Poll ${pollCount + 1}: is_scanning =`, data.data?.is_scanning);
+            
             if (data.success &amp;&amp; !data.data.is_scanning) {
                 // Scan is complete
-                console.log('Scan completed after', pollCount * 2, 'seconds');
+                console.log('Scan completed after', (pollCount * 2) + 1, 'seconds');
                 return;
             }
         } catch (error) {
@@ -194,7 +199,7 @@ async function pollForScanComplete() {
         await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
-    console.warn('Polling timed out after', maxPolls * 2, 'seconds');
+    console.warn('Polling timed out after', (maxPolls * 2) + 1, 'seconds');
 }
 
 // UI Update Functions
@@ -347,7 +352,7 @@ function updateDealsTable() {
                 <small>${deal.seller_username}</small>
             </td>
             <td>
-                ${deal.condition}
+                ${deal.condition_tags &amp;&amp; deal.condition_tags.length > 0 ? deal.condition_tags.slice(0, 2).join(' | ') : deal.condition}
                 <br>
                 <small>Listed ${deal.time_since_listed || 'Unknown'}</small>
             </td>
