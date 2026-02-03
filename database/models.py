@@ -50,6 +50,7 @@ class Deal(Base):
     item_url = Column(String(500), nullable=False)
     image_url = Column(String(500))
     time_listed = Column(DateTime)  # When the listing was created on eBay
+    quantity_available = Column(Integer, default=1)  # Track quantity for sold-out detection
     
     # Metadata
     scan_id = Column(String(50))
@@ -221,6 +222,7 @@ class DatabaseManager:
                 existing.item_url = deal_data.get('item_url')
                 existing.image_url = deal_data.get('image_url')
                 existing.time_listed = deal_data.get('time_listed')
+                existing.quantity_available = deal_data.get('quantity_available', 1)
                 existing.scan_id = deal_data.get('scan_id')
                 existing.confidence = deal_data.get('asw_info', {}).get('confidence')
                 
@@ -255,6 +257,7 @@ class DatabaseManager:
                     item_url=deal_data.get('item_url'),
                     image_url=deal_data.get('image_url'),
                     time_listed=deal_data.get('time_listed'),
+                    quantity_available=deal_data.get('quantity_available', 1),
                     scan_id=deal_data.get('scan_id'),
                     confidence=deal_data.get('asw_info', {}).get('confidence'),
                     is_hidden=False,
@@ -635,11 +638,15 @@ class DatabaseManager:
                 logger.debug("No hidden deals to check for expunging")
                 return 0
             
-            # Find hidden deals not in current scan
+            # Find hidden deals not in current scan OR with zero quantity
             stale_deals = []
             for deal in hidden_deals:
                 if deal.item_id not in current_scan_item_ids:
                     stale_deals.append(deal)
+                    logger.debug(f"Deal {deal.item_id} not in current scan - marking for expunge")
+                elif hasattr(deal, 'quantity_available') and deal.quantity_available == 0:
+                    stale_deals.append(deal)
+                    logger.debug(f"Deal {deal.item_id} has zero quantity - marking for expunge")
             
             # Delete stale hidden deals
             expunged_count = 0
@@ -660,6 +667,45 @@ class DatabaseManager:
         except Exception as e:
             session.rollback()
             logger.error(f"Error expunging stale hidden deals: {e}")
+            return 0
+        finally:
+            session.close()
+    
+    def remove_zero_quantity_deals(self) -> int:
+        """
+        Remove all deals (visible and hidden) with zero quantity available.
+        
+        This ensures sold-out items are removed from the database entirely.
+        
+        Returns:
+            Number of deals removed
+        """
+        session = self.get_session()
+        try:
+            # Find all deals with zero quantity
+            zero_qty_deals = session.query(Deal).filter_by(quantity_available=0).all()
+            
+            if not zero_qty_deals:
+                logger.debug("No zero-quantity deals to remove")
+                return 0
+            
+            # Delete zero-quantity deals
+            removed_count = 0
+            for deal in zero_qty_deals:
+                logger.info(f"Removing sold-out deal: {deal.title[:50]}... (item_id: {deal.item_id})")
+                session.delete(deal)
+                removed_count += 1
+            
+            session.commit()
+            
+            if removed_count > 0:
+                logger.info(f"Removed {removed_count} sold-out deals (quantity = 0)")
+            
+            return removed_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error removing zero-quantity deals: {e}")
             return 0
         finally:
             session.close()

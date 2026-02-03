@@ -161,6 +161,12 @@ class eBayAPI:
             currency = item.get('price', {}).get('currency', 'USD')
             item_url = item.get('itemWebUrl', '')
             
+            # Quantity available - filter out sold-out items
+            quantity_available = item.get('quantityAvailable', 0)
+            if quantity_available == 0:
+                logger.debug(f"Skipping sold-out item: {title[:50]}...")
+                return None
+            
             # Shipping cost
             shipping_cost = 0.0
             shipping_options = item.get('shippingOptions', [])
@@ -192,6 +198,7 @@ class eBayAPI:
                 'listing_type': item.get('buyingOptions', []),
                 'category_id': item.get('categoryId', ''),
                 'time_listed': item.get('itemCreationDate'),  # eBay listing start time
+                'quantity_available': quantity_available,  # Track quantity for sold-out detection
                 'scan_time': datetime.now().isoformat()
             }
             

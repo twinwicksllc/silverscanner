@@ -545,6 +545,102 @@ def run_migration():
             'error': str(e)
         }), 500
 
+@app.route('/admin/migrate/quantity_available', methods=['POST'])
+def migrate_quantity_available():
+    """
+    Admin endpoint to add quantity_available column to deals table
+    This can be called on Render to update the database schema
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/quantity_available \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check - require a secret key
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    database_url = os.getenv('DATABASE_URL')
+    
+    if not database_url:
+        return jsonify({
+            'success': False,
+            'error': 'DATABASE_URL not configured'
+        }), 500
+    
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(database_url)
+        
+        with engine.connect() as conn:
+            # Check if column already exists
+            check_sql = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'deals' 
+            AND column_name = 'quantity_available';
+            """
+            
+            result = conn.execute(text(check_sql))
+            existing = result.fetchone()
+            
+            if existing:
+                logger.info("Column quantity_available already exists - skipping migration")
+                return jsonify({
+                    'success': True,
+                    'message': 'Column quantity_available already exists',
+                    'action': 'skipped'
+                })
+            
+            logger.info("Adding quantity_available column to deals table...")
+            
+            # Add the column with default value of 1
+            alter_sql = """
+            ALTER TABLE deals 
+            ADD COLUMN quantity_available INTEGER DEFAULT 1;
+            """
+            
+            conn.execute(text(alter_sql))
+            conn.commit()
+            
+            logger.info("Creating index on quantity_available column...")
+            
+            # Create index for efficient zero-quantity filtering
+            index_sql = """
+            CREATE INDEX idx_deals_quantity_available 
+            ON deals(quantity_available);
+            """
+            
+            try:
+                conn.execute(text(index_sql))
+                conn.commit()
+            except Exception as e:
+                if "already exists" not in str(e):
+                    raise
+            
+            engine.dispose()
+            
+            logger.info("Migration completed successfully!")
+            
+            return jsonify({
+                'success': True,
+                'message': 'Successfully added quantity_available column to deals table',
+                'action': 'created'
+            })
+            
+    except Exception as e:
+        logger.error(f"Migration failed: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.errorhandler(500)
 def server_error(error):
     logger.error(f"Server error: {error}")

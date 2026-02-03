@@ -9,7 +9,9 @@ const AppState = {
     lastScanTime: null,
     priceInfo: null,
     deals: [],
-    scanInterval: null
+    scanInterval: null,
+    sortBy: 'discount',  // default sort: discount (highest first)
+    sortOrder: 'desc'    // desc = descending, asc = ascending
 };
 
 // Utility functions
@@ -295,6 +297,36 @@ function updateScanButton() {
     }
 }
 
+function sortDeals(deals) {
+    const sorted = [...deals];
+    
+    sorted.sort((a, b) => {
+        let compareValue = 0;
+        
+        switch (AppState.sortBy) {
+            case 'discount':
+                // Sort by discount percentage
+                compareValue = b.discount_percent - a.discount_percent;
+                break;
+            case 'price_per_oz':
+                // Sort by cost per ounce (lower is better)
+                compareValue = a.cost_per_oz - b.cost_per_oz;
+                break;
+            case 'time_listed':
+                // Sort by time listed (newer first)
+                const timeA = a.time_listed ? new Date(a.time_listed).getTime() : 0;
+                const timeB = b.time_listed ? new Date(b.time_listed).getTime() : 0;
+                compareValue = timeB - timeA;
+                break;
+        }
+        
+        // Reverse if ascending order
+        return AppState.sortOrder === 'asc' ? -compareValue : compareValue;
+    });
+    
+    return sorted;
+}
+
 function updateDealsTable() {
     const dealsTable = document.getElementById('deals-table-body');
     const emptyState = document.getElementById('empty-state');
@@ -324,8 +356,11 @@ function updateDealsTable() {
         dealsSection.style.display = 'block';
     }
     
+    // Sort deals before rendering
+    const sortedDeals = sortDeals(AppState.deals);
+    
     // Populate table
-    AppState.deals.forEach(deal => {
+    sortedDeals.forEach(deal => {
         const row = document.createElement('tr');
         
         // Determine discount badge class
@@ -525,5 +560,50 @@ document.addEventListener('DOMContentLoaded', function() {
                 showNotification('Error testing eBay connection', 'error');
             }
         });
+    }
+    
+    // Sort button event listeners
+    const sortButtons = document.querySelectorAll('.sort-btn');
+    sortButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const sortType = this.getAttribute('data-sort');
+            
+            // Toggle sort order if clicking same button
+            if (AppState.sortBy === sortType) {
+                AppState.sortOrder = AppState.sortOrder === 'desc' ? 'asc' : 'desc';
+            } else {
+                // New sort type - set default order
+                AppState.sortBy = sortType;
+                if (sortType === 'price_per_oz') {
+                    AppState.sortOrder = 'asc';  // Lower price is better
+                } else {
+                    AppState.sortOrder = 'desc'; // Higher discount/newer time is better
+                }
+            }
+            
+            // Update button states
+            sortButtons.forEach(btn => {
+                btn.classList.remove('active', 'asc', 'desc');
+            });
+            this.classList.add('active', AppState.sortOrder);
+            
+            // Re-render table with new sort
+            updateDealsTable();
+            
+            // Show notification
+            const sortNames = {
+                'discount': 'Discount %',
+                'price_per_oz': 'Price per Ounce',
+                'time_listed': 'Time Listed'
+            };
+            const orderText = AppState.sortOrder === 'asc' ? 'ascending' : 'descending';
+            showNotification(`Sorted by ${sortNames[sortType]} (${orderText})`, 'info');
+        });
+    });
+    
+    // Set initial active sort button
+    const defaultSortBtn = document.querySelector('.sort-btn[data-sort="discount"]');
+    if (defaultSortBtn) {
+        defaultSortBtn.classList.add('active', 'desc');
     }
 });
