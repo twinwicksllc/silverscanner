@@ -32,6 +32,9 @@ class DealScanner:
         Perform a complete scan for silver deals
         Returns list of qualified deals
         """
+        # Generate scan_id once at the start
+        scan_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
         logger.info("="*60)
         logger.info("Starting silver deal scan")
         logger.info("="*60)
@@ -101,7 +104,7 @@ class DealScanner:
                         **item_details,
                         'asw_info': asw_result,
                         'metrics': deal_metrics,
-                        'scan_id': f"{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+                        'scan_id': scan_id,
                         'qualified_at': datetime.now().isoformat()
                     }
                     
@@ -154,6 +157,9 @@ class DealScanner:
         if stale_count > 0:
             logger.info(f"Removed {stale_count} stale deals")
         
+        # Store scan_id for get_deal_summary()
+        self.scan_id = scan_id
+        
         self.scan_results = qualified_deals
         return qualified_deals
     
@@ -185,7 +191,8 @@ class DealScanner:
             'avg_discount': sum(discounts) / len(discounts) if discounts else 0.0,
             'total_savings': total_savings,
             'coin_types': coin_types,
-            'scan_time': datetime.now().isoformat()
+            'scan_time': datetime.now().isoformat(),
+            'scan_id': getattr(self, 'scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
         }
     
     def format_deal_for_display(self, deal: Dict) -> Dict:
