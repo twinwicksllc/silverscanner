@@ -144,10 +144,15 @@ class DealScanner:
         if expunged_count > 0:
             logger.info(f"Expunged {expunged_count} stale hidden deals")
         
-        # Remove zero-quantity deals (sold-out items)
-        removed_count = self.db_manager.remove_zero_quantity_deals()
-        if removed_count > 0:
-            logger.info(f"Removed {removed_count} sold-out deals")
+        # Remove expired deals (listing has ended)
+        expired_count = self.db_manager.remove_expired_deals()
+        if expired_count > 0:
+            logger.info(f"Removed {expired_count} expired deals")
+        
+        # Cleanup stale deals (not seen in recent scans - likely sold)
+        stale_count = self.db_manager.cleanup_stale_deals(current_scan_item_ids, max_age_hours=24)
+        if stale_count > 0:
+            logger.info(f"Removed {stale_count} stale deals")
         
         self.scan_results = qualified_deals
         return qualified_deals

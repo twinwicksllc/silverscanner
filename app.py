@@ -545,14 +545,14 @@ def run_migration():
             'error': str(e)
         }), 500
 
-@app.route('/admin/migrate/quantity_available', methods=['POST'])
-def migrate_quantity_available():
+@app.route('/admin/migrate/listing_tracking', methods=['POST'])
+def migrate_listing_tracking():
     """
-    Admin endpoint to add quantity_available column to deals table
-    This can be called on Render to update the database schema
+    Admin endpoint to add listing tracking columns to deals table
+    Adds: item_end_date, last_seen_in_scan
     
     Usage:
-    curl -X POST https://scanner.teckstart.com/admin/migrate/quantity_available \
+    curl -X POST https://scanner.teckstart.com/admin/migrate/listing_tracking \
       -H "X-Migration-Key: teckstart_migrate_2025"
     """
     
@@ -578,61 +578,61 @@ def migrate_quantity_available():
         from sqlalchemy import create_engine, text
         engine = create_engine(database_url)
         
+        migrations_run = []
+        
         with engine.connect() as conn:
-            # Check if column already exists
+            # Migration 1: Add item_end_date column
             check_sql = """
             SELECT column_name 
             FROM information_schema.columns 
             WHERE table_name = 'deals' 
-            AND column_name = 'quantity_available';
+            AND column_name = 'item_end_date';
             """
-            
             result = conn.execute(text(check_sql))
-            existing = result.fetchone()
+            if not result.fetchone():
+                logger.info("Adding item_end_date column...")
+                conn.execute(text("ALTER TABLE deals ADD COLUMN item_end_date TIMESTAMP;"))
+                conn.commit()
+                migrations_run.append('item_end_date')
             
-            if existing:
-                logger.info("Column quantity_available already exists - skipping migration")
-                return jsonify({
-                    'success': True,
-                    'message': 'Column quantity_available already exists',
-                    'action': 'skipped'
-                })
-            
-            logger.info("Adding quantity_available column to deals table...")
-            
-            # Add the column with default value of 1
-            alter_sql = """
-            ALTER TABLE deals 
-            ADD COLUMN quantity_available INTEGER DEFAULT 1;
+            # Migration 2: Add last_seen_in_scan column
+            check_sql = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'deals' 
+            AND column_name = 'last_seen_in_scan';
             """
+            result = conn.execute(text(check_sql))
+            if not result.fetchone():
+                logger.info("Adding last_seen_in_scan column...")
+                conn.execute(text("ALTER TABLE deals ADD COLUMN last_seen_in_scan TIMESTAMP;"))
+                conn.commit()
+                migrations_run.append('last_seen_in_scan')
             
-            conn.execute(text(alter_sql))
-            conn.commit()
-            
-            logger.info("Creating index on quantity_available column...")
-            
-            # Create index for efficient zero-quantity filtering
-            index_sql = """
-            CREATE INDEX idx_deals_quantity_available 
-            ON deals(quantity_available);
-            """
-            
+            # Create indexes
             try:
-                conn.execute(text(index_sql))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deals_item_end_date ON deals(item_end_date);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deals_last_seen ON deals(last_seen_in_scan);"))
                 conn.commit()
             except Exception as e:
-                if "already exists" not in str(e):
-                    raise
+                if "already exists" not in str(e).lower():
+                    logger.warning(f"Index creation warning: {e}")
             
             engine.dispose()
             
-            logger.info("Migration completed successfully!")
-            
-            return jsonify({
-                'success': True,
-                'message': 'Successfully added quantity_available column to deals table',
-                'action': 'created'
-            })
+            if migrations_run:
+                logger.info(f"Migration completed! Added columns: {migrations_run}")
+                return jsonify({
+                    'success': True,
+                    'message': f'Successfully added columns: {migrations_run}',
+                    'columns_added': migrations_run
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'message': 'All columns already exist',
+                    'action': 'skipped'
+                })
             
     except Exception as e:
         logger.error(f"Migration failed: {str(e)}")

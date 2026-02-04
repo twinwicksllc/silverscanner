@@ -161,11 +161,18 @@ class eBayAPI:
             currency = item.get('price', {}).get('currency', 'USD')
             item_url = item.get('itemWebUrl', '')
             
-            # Quantity available - filter out sold-out items
-            quantity_available = item.get('quantityAvailable', 0)
-            if quantity_available == 0:
-                logger.debug(f"Skipping sold-out item: {title[:50]}...")
-                return None
+            # Check if listing has ended (itemEndDate is available in search results)
+            # Note: quantityAvailable is NOT available in search results, only in getItem API
+            item_end_date = item.get('itemEndDate')
+            if item_end_date:
+                try:
+                    from datetime import timezone
+                    end_date = datetime.fromisoformat(item_end_date.replace('Z', '+00:00'))
+                    if end_date < datetime.now(timezone.utc):
+                        logger.debug(f"Skipping ended listing: {title[:50]}...")
+                        return None
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Could not parse itemEndDate: {e}")
             
             # Shipping cost
             shipping_cost = 0.0
@@ -198,7 +205,7 @@ class eBayAPI:
                 'listing_type': item.get('buyingOptions', []),
                 'category_id': item.get('categoryId', ''),
                 'time_listed': item.get('itemCreationDate'),  # eBay listing start time
-                'quantity_available': quantity_available,  # Track quantity for sold-out detection
+                'item_end_date': item_end_date,  # When listing ends (for expiration tracking)
                 'scan_time': datetime.now().isoformat()
             }
             

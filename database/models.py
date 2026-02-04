@@ -50,7 +50,8 @@ class Deal(Base):
     item_url = Column(String(500), nullable=False)
     image_url = Column(String(500))
     time_listed = Column(DateTime)  # When the listing was created on eBay
-    quantity_available = Column(Integer, default=1)  # Track quantity for sold-out detection
+    item_end_date = Column(DateTime)  # When the listing ends/expires
+    last_seen_in_scan = Column(DateTime)  # Last time this deal appeared in a scan
     
     # Metadata
     scan_id = Column(String(50))
@@ -222,7 +223,8 @@ class DatabaseManager:
                 existing.item_url = deal_data.get('item_url')
                 existing.image_url = deal_data.get('image_url')
                 existing.time_listed = deal_data.get('time_listed')
-                existing.quantity_available = deal_data.get('quantity_available', 1)
+                existing.item_end_date = deal_data.get('item_end_date')
+                existing.last_seen_in_scan = datetime.utcnow()  # Update last seen time
                 existing.scan_id = deal_data.get('scan_id')
                 existing.confidence = deal_data.get('asw_info', {}).get('confidence')
                 
@@ -257,7 +259,8 @@ class DatabaseManager:
                     item_url=deal_data.get('item_url'),
                     image_url=deal_data.get('image_url'),
                     time_listed=deal_data.get('time_listed'),
-                    quantity_available=deal_data.get('quantity_available', 1),
+                    item_end_date=deal_data.get('item_end_date'),
+                    last_seen_in_scan=datetime.utcnow(),  # Track when deal was last seen
                     scan_id=deal_data.get('scan_id'),
                     confidence=deal_data.get('asw_info', {}).get('confidence'),
                     is_hidden=False,
@@ -638,15 +641,12 @@ class DatabaseManager:
                 logger.debug("No hidden deals to check for expunging")
                 return 0
             
-            # Find hidden deals not in current scan OR with zero quantity
+            # Find hidden deals not in current scan
             stale_deals = []
             for deal in hidden_deals:
                 if deal.item_id not in current_scan_item_ids:
                     stale_deals.append(deal)
                     logger.debug(f"Deal {deal.item_id} not in current scan - marking for expunge")
-                elif hasattr(deal, 'quantity_available') and deal.quantity_available == 0:
-                    stale_deals.append(deal)
-                    logger.debug(f"Deal {deal.item_id} has zero quantity - marking for expunge")
             
             # Delete stale hidden deals
             expunged_count = 0
@@ -671,41 +671,106 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def remove_zero_quantity_deals(self) -> int:
+    def cleanup_stale_deals(self, current_scan_item_ids: set, max_age_hours: int = 24) -> int:
         """
-        Remove all deals (visible and hidden) with zero quantity available.
+        Remove visible deals that haven't been seen in recent scans.
         
-        This ensures sold-out items are removed from the database entirely.
+        This ensures that sold/expired items are removed from the dashboard.
+        A deal is considered stale if:
+        1. It's not in the current scan results, AND
+        2. It hasn't been seen for more than max_age_hours
+        
+        Args:
+            current_scan_item_ids: Set of item IDs from the current scan
+            max_age_hours: Maximum hours a deal can go unseen before removal
+            
+        Returns:
+            Number of deals removed
+        """
+        session = self.get_session()
+        try:
+            # Get all visible (non-hidden) deals
+            visible_deals = session.query(Deal).filter_by(is_hidden=False).all()
+            
+            if not visible_deals:
+                logger.debug("No visible deals to check for staleness")
+                return 0
+            
+            stale_count = 0
+            now = datetime.utcnow()
+            
+            for deal in visible_deals:
+                # Skip deals that are in the current scan
+                if deal.item_id in current_scan_item_ids:
+                    continue
+                
+                # Check if deal is stale based on last_seen_in_scan or qualified_at
+                last_seen = deal.last_seen_in_scan or deal.qualified_at
+                if last_seen:
+                    age_hours = (now - last_seen).total_seconds() / 3600
+                    if age_hours > max_age_hours:
+                        logger.info(f"Removing stale deal (not seen for {age_hours:.1f}h): {deal.title[:50]}...")
+                        session.delete(deal)
+                        stale_count += 1
+                else:
+                    # No timestamp - remove if not in current scan
+                    logger.info(f"Removing deal with no timestamp: {deal.title[:50]}...")
+                    session.delete(deal)
+                    stale_count += 1
+            
+            session.commit()
+            
+            if stale_count > 0:
+                logger.info(f"Removed {stale_count} stale deals (not seen in recent scans)")
+            else:
+                logger.debug(f"All {len(visible_deals)} visible deals are still active")
+            
+            return stale_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error cleaning up stale deals: {e}")
+            return 0
+        finally:
+            session.close()
+    
+    def remove_expired_deals(self) -> int:
+        """
+        Remove deals whose eBay listing has ended (based on item_end_date).
         
         Returns:
             Number of deals removed
         """
         session = self.get_session()
         try:
-            # Find all deals with zero quantity
-            zero_qty_deals = session.query(Deal).filter_by(quantity_available=0).all()
+            now = datetime.utcnow()
             
-            if not zero_qty_deals:
-                logger.debug("No zero-quantity deals to remove")
+            # Find all deals with an end date in the past
+            expired_deals = session.query(Deal).filter(
+                Deal.item_end_date != None,
+                Deal.item_end_date < now
+            ).all()
+            
+            if not expired_deals:
+                logger.debug("No expired deals to remove")
                 return 0
             
-            # Delete zero-quantity deals
-            removed_count = 0
-            for deal in zero_qty_deals:
-                logger.info(f"Removing sold-out deal: {deal.title[:50]}... (item_id: {deal.item_id})")
+            expired_count = 0
+            for deal in expired_deals:
+                logger.info(f"Removing expired deal (ended {deal.item_end_date}): {deal.title[:50]}...")
                 session.delete(deal)
-                removed_count += 1
+                expired_count += 1
             
             session.commit()
             
-            if removed_count > 0:
-                logger.info(f"Removed {removed_count} sold-out deals (quantity = 0)")
+            if expired_count > 0:
+                logger.info(f"Removed {expired_count} expired deals")
             
-            return removed_count
+            return expired_count
             
         except Exception as e:
             session.rollback()
-            logger.error(f"Error removing zero-quantity deals: {e}")
+            logger.error(f"Error removing expired deals: {e}")
             return 0
         finally:
             session.close()
