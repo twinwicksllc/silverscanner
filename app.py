@@ -727,30 +727,107 @@ def migrate_metal_support():
     try:
         import sys
         import os
+        from sqlalchemy import create_engine, text, inspect
         
-        # Import and run the migration script
-        migration_path = os.path.join(os.path.dirname(__file__), 'migrations', 'run_multi_metal_migration.py')
+        database_url = os.getenv('DATABASE_URL')
         
-        # Import the migration module
-        sys.path.insert(0, os.path.dirname(migration_path))
-        from run_multi_metal_migration import main as run_migration
+        if not database_url:
+            return jsonify({
+                'success': False,
+                'error': 'DATABASE_URL not configured'
+            }), 500
         
-        # Run migration (capture stdout to get results)
-        import io
-        from contextlib import redirect_stdout
+        engine = create_engine(database_url)
+        is_postgres = 'postgresql' in database_url
         
-        output = io.StringIO()
-        with redirect_stdout(output):
-            run_migration()
+        logger.info(f"Starting multi-metal migration (database type: {'PostgreSQL' if is_postgres else 'SQLite'})")
         
-        migration_output = output.getvalue()
+        with engine.connect() as conn:
+            # Step 1: Add metal_type column
+            try:
+                conn.execute(text("ALTER TABLE deals ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
+                conn.commit()
+                logger.info("Added metal_type column")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 2: Add metal_purity column
+            try:
+                conn.execute(text("ALTER TABLE deals ADD COLUMN metal_purity FLOAT DEFAULT 1.0"))
+                conn.commit()
+                logger.info("Added metal_purity column")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 3: Create index on metal_type
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deals_metal_type ON deals(metal_type)"))
+                conn.commit()
+                logger.info("Created index on metal_type")
+            except Exception:
+                pass  # Index may already exist
+            
+            # Step 4: Create spot_prices table
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            if 'spot_prices' not in tables:
+                if is_postgres:
+                    conn.execute(text("""
+                        CREATE TABLE spot_prices (
+                            id SERIAL PRIMARY KEY,
+                            metal_type VARCHAR(20) NOT NULL,
+                            price FLOAT NOT NULL,
+                            source VARCHAR(100),
+                            timestamp TIMESTAMP DEFAULT NOW(),
+                            verified BOOLEAN DEFAULT FALSE
+                        )
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE spot_prices (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            metal_type VARCHAR(20) NOT NULL,
+                            price FLOAT NOT NULL,
+                            source VARCHAR(100),
+                            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            verified BOOLEAN DEFAULT 0
+                        )
+                    """))
+                conn.commit()
+                logger.info("Created spot_prices table")
+            
+            # Step 5: Create index on spot_prices
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_spot_prices_metal_timestamp ON spot_prices(metal_type, timestamp DESC)"))
+                conn.commit()
+                logger.info("Created index on spot_prices")
+            except Exception:
+                pass
+            
+            # Step 6: Update price_history table
+            try:
+                conn.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
+                conn.commit()
+                logger.info("Added metal_type to price_history")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 7: Create index on price_history
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal ON price_history(metal_type, timestamp DESC)"))
+                conn.commit()
+                logger.info("Created index on price_history")
+            except Exception:
+                pass
         
         logger.info("Multi-metal support migration completed successfully")
         
         return jsonify({
             'success': True,
             'message': 'Multi-metal support migration completed',
-            'output': migration_output,
             'columns_added': ['metal_type', 'metal_purity'],
             'tables_created': ['spot_prices'],
             'indexes_created': ['idx_deals_metal_type', 'idx_spot_prices_metal_timestamp']
