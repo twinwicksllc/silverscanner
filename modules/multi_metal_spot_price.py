@@ -135,6 +135,56 @@ class MultiMetalSpotPrice:
         
         return None
     
+    def _get_silver_price_yahoo_finance(self) -> Optional[float]:
+        """Get silver price from Yahoo Finance (SI=F ticker)"""
+        try:
+            # Yahoo Finance silver futures ticker
+            url = 'https://query1.finance.yahoo.com/v8/finance/chart/SI=F'
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract current price from chart data
+            if 'chart' in data and 'result' in data['chart']:
+                result = data['chart']['result'][0]
+                if 'meta' in result and 'regularMarketPrice' in result['meta']:
+                    price = result['meta']['regularMarketPrice']
+                    if self._is_price_valid('silver', price):
+                        logger.info(f"Got silver price from Yahoo Finance: ${price:.2f}/oz")
+                        return price
+        except Exception as e:
+            logger.debug(f"Failed to get Yahoo Finance silver price: {e}")
+        
+        return None
+
+    def _get_silver_price_with_fallback(self) -> Dict:
+        """Get silver price with multiple fallback sources"""
+        # Try CoinGecko first
+        result = self.get_spot_price('silver')
+        if result.get('spot_price'):
+            return result
+        
+        logger.warning("CoinGecko silver price unavailable, trying fallback sources...")
+        
+        # Try Yahoo Finance (most reliable)
+        price = self._get_silver_price_yahoo_finance()
+        if price:
+            return {
+                'spot_price': price,
+                'source': 'Yahoo Finance',
+                'timestamp': datetime.now().isoformat(),
+                'verified': True
+            }
+        
+        logger.error("All silver price sources failed")
+        return {
+            'spot_price': None,
+            'source': 'None',
+            'timestamp': datetime.now().isoformat(),
+            'verified': False
+        }
+
     def _get_gold_price_with_fallback(self) -> Dict:
         """Get gold price with multiple fallback sources"""
         # Try CoinGecko first
@@ -324,9 +374,10 @@ class MultiMetalSpotPrice:
     def get_silver_price_info(self) -> Dict:
         """
         Get silver spot price with threshold calculation
+        Uses fallback sources if CoinGecko fails
         Returns dict with spot_price, threshold, source, timestamp
         """
-        price_info = self.get_spot_price('silver')
+        price_info = self._get_silver_price_with_fallback()
         spot_price = price_info.get('spot_price')
         
         if spot_price:

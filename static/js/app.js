@@ -228,21 +228,21 @@ function updatePriceDisplay() {
     const priceInfo = AppState.priceInfo;
     if (!priceInfo) return;
     
-    // Update spot price - API returns 'price' not 'spot_price'
+    // Update spot price - API returns 'spot_price'
     const spotPriceEl = document.getElementById('spot-price');
     if (spotPriceEl) {
-        if (priceInfo.price !== null && priceInfo.price !== undefined) {
-            spotPriceEl.textContent = formatCurrency(priceInfo.price);
+        if (priceInfo.spot_price !== null && priceInfo.spot_price !== undefined) {
+            spotPriceEl.textContent = formatCurrency(priceInfo.spot_price);
         } else {
             spotPriceEl.textContent = 'Loading...';
         }
     }
     
-    // Update threshold - calculate from price
+    // Update threshold - calculate from spot_price
     const thresholdEl = document.getElementById('threshold-price');
-    if (thresholdEl && priceInfo.price) {
+    if (thresholdEl && priceInfo.spot_price) {
         const thresholdPercent = 0.89; // 89% threshold from config
-        const threshold = priceInfo.price * thresholdPercent;
+        const threshold = priceInfo.spot_price * thresholdPercent;
         thresholdEl.textContent = formatCurrency(threshold);
     }
     
