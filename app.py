@@ -704,3 +704,67 @@ if __name__ == '__main__':
             digest_scheduler.stop()
         except:
             pass
+@app.route('/admin/migrate/metal_support', methods=['POST'])
+def migrate_metal_support():
+    """
+    Admin endpoint to add multi-metal support columns
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/metal_support \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    database_url = os.getenv('DATABASE_URL')
+    
+    if not database_url:
+        return jsonify({
+            'success': False,
+            'error': 'DATABASE_URL not configured'
+        }), 500
+    
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(database_url)
+        
+        # Read migration SQL
+        migration_path = os.path.join(os.path.dirname(__file__), 'migrations', 'add_metal_type_support.sql')
+        with open(migration_path, 'r') as f:
+            migration_sql = f.read()
+        
+        # Execute migration
+        with engine.connect() as conn:
+            # Split by semicolon and execute each statement
+            statements = [s.strip() for s in migration_sql.split(';') if s.strip() and not s.strip().startswith('--')]
+            
+            for statement in statements:
+                if statement:
+                    conn.execute(text(statement))
+                    conn.commit()
+        
+        logger.info("Multi-metal support migration completed successfully")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Multi-metal support migration completed',
+            'columns_added': ['metal_type', 'metal_purity'],
+            'tables_created': ['spot_prices'],
+            'indexes_created': ['idx_deals_metal_type', 'idx_deals_metal_weight', 'idx_spot_prices_metal_timestamp']
+        })
+    
+    except Exception as e:
+        logger.error(f"Migration failed: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+

@@ -43,8 +43,27 @@ class Config:
     DEAL_THRESHOLD_PERCENTAGE = float(os.getenv('DEAL_THRESHOLD_PERCENTAGE', 83.0))
     MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))
     
+    # Multi-Metal Support
+    METALS_ENABLED = os.getenv('METALS_ENABLED', 'silver,gold').split(',')
+    
+    # Metal-specific thresholds (percentage of spot price)
+    METAL_THRESHOLDS = {
+        'silver': float(os.getenv('SILVER_THRESHOLD', '89.0')),
+        'gold': float(os.getenv('GOLD_THRESHOLD', '92.0')),
+        'platinum': float(os.getenv('PLATINUM_THRESHOLD', '90.0')),
+        'palladium': float(os.getenv('PALLADIUM_THRESHOLD', '90.0'))
+    }
+    
+    # eBay category IDs for different metals
+    EBAY_CATEGORIES = {
+        'silver': '39487',  # Silver Bullion
+        'gold': '39482',    # Gold Bullion
+        'platinum': '39483', # Platinum Bullion
+        'palladium': '260210' # Palladium Bullion
+    }
+    
     # Search Keywords and Categories
-    SEARCH_KEYWORDS = [
+    SILVER_SEARCH_KEYWORDS = [
         'Walking Liberty half',
         'Peace dollar',
         'Barber half',
@@ -60,8 +79,24 @@ class Config:
         'Junk silver lot'
     ]
     
+    GOLD_SEARCH_KEYWORDS = [
+        'gold eagle',
+        'gold buffalo',
+        'gold maple',
+        'krugerrand',
+        'gold sovereign',
+        'double eagle',
+        '$20 gold',
+        '$10 gold',
+        'gold bar',
+        'gold round',
+    ]
+    
+    # Backward compatibility
+    SEARCH_KEYWORDS = SILVER_SEARCH_KEYWORDS
+    
     EBAY_CATEGORY_COINS = '112862'  # Coins & Paper Money
-    EBAY_CATEGORY_BULLION = '39487'  # Silver Bullion
+    EBAY_CATEGORY_BULLION = '39487'  # Silver Bullion (backward compatibility)
     
     # Silver Spot Price Configuration
     # Primary sources for two-key verification
