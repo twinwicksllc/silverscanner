@@ -373,9 +373,6 @@ def api_deals():
             'success': False,
             'error': str(e)
         }), 500
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @app.route('/api/scan/status')
 def api_scan_status():
