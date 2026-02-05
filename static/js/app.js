@@ -84,6 +84,24 @@ async function fetchPriceInfo(metalType = null) {
     }
 }
 
+async function fetchPriceHistory(metalType = null) {
+    console.log('fetchPriceHistory() called with metalType:', metalType);
+    const metal = metalType || AppState.currentMetal || 'silver';
+    
+    try {
+        const response = await fetch(`/api/price/history?metal_type=${metal}&days=30`);
+        console.log('fetchPriceHistory response status:', response.status);
+        const data = await response.json();
+        console.log('fetchPriceHistory data:', data);
+        
+        if (data.success) {
+            updatePriceChart(data.data);
+        }
+    } catch (error) {
+        console.error('Error fetching price history:', error);
+    }
+}
+
 async function fetchScanStatus() {
     try {
         const response = await fetch('/api/scan/status');
@@ -632,6 +650,9 @@ function filterByMetal() {
     
     // Update price info for selected metal
     fetchPriceInfo(selectedMetal);
+    
+    // Update price history chart for selected metal
+    fetchPriceHistory(selectedMetal);
 }
 
 // Update metal-specific labels in UI

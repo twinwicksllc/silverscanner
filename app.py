@@ -524,10 +524,19 @@ def api_settings():
 
 @app.route('/api/price/history')
 def api_price_history():
-    """API endpoint to get silver spot price history"""
+    """API endpoint to get spot price history for specified metal"""
     try:
         days = request.args.get('days', 30, type=int)
-        price_history = db_manager.get_price_history(days=days)
+        metal_type = request.args.get('metal_type', 'silver').lower()
+        
+        # Validate metal_type
+        if metal_type not in ['silver', 'gold']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver" or "gold"'
+            }), 400
+        
+        price_history = db_manager.get_price_history(days=days, metal_type=metal_type)
         
         return jsonify({
             'success': True,
@@ -977,6 +986,102 @@ def migrate_metal_support():
             'columns_added': ['metal_type', 'metal_purity'],
             'tables_created': ['spot_prices'],
             'indexes_created': ['idx_deals_metal_type', 'idx_spot_prices_metal_timestamp']
+        })
+    
+    except Exception as e:
+        logger.error(f"Migration failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/admin/migrate/price_history_metal_type', methods=['POST'])
+def migrate_price_history_metal_type():
+    """
+    Admin endpoint to add metal_type column to price_history table
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/price_history_metal_type \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    try:
+        import sys
+        import os
+        from sqlalchemy import create_engine, text, inspect
+        
+        database_url = os.getenv('DATABASE_URL')
+        
+        if not database_url:
+            return jsonify({
+                'success': False,
+                'error': 'DATABASE_URL not configured'
+            }), 500
+        
+        engine = create_engine(database_url)
+        is_postgres = 'postgresql' in database_url
+        
+        logger.info(f"Starting price_history metal_type migration (database type: {'PostgreSQL' if is_postgres else 'SQLite'})")
+        
+        with engine.connect() as conn:
+            # Step 1: Add metal_type column
+            try:
+                conn.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
+                conn.commit()
+                logger.info("Added metal_type column to price_history")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 2: Create index on metal_type
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)"))
+                conn.commit()
+                logger.info("Created index on price_history.metal_type")
+            except Exception as e:
+                if 'already exists' in str(e).lower():
+                    pass
+                else:
+                    raise
+            
+            # Step 3: Update existing records to have metal_type = 'silver'
+            try:
+                conn.execute(text("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''"))
+                conn.commit()
+                logger.info("Updated existing price_history records")
+            except Exception as e:
+                logger.warning(f"Could not update existing records: {e}")
+            
+            # Step 4: Create composite index for (metal_type, timestamp)
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)"))
+                conn.commit()
+                logger.info("Created composite index on price_history(metal_type, timestamp)")
+            except Exception as e:
+                if 'already exists' in str(e).lower():
+                    pass
+                else:
+                    raise
+        
+        logger.info("Price history metal_type migration completed successfully")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Price history metal_type migration completed',
+            'columns_added': ['metal_type'],
+            'indexes_created': ['idx_price_history_metal_type', 'idx_price_history_metal_timestamp']
         })
     
     except Exception as e:

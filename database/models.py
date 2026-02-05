@@ -127,17 +127,18 @@ class AlertHistory(Base):
         return f"<AlertHistory {self.item_id} {self.alert_type}>"
 
 class PriceHistory(Base):
-    """Model for storing silver spot price history"""
+    """Model for storing spot price history for all metals"""
     __tablename__ = 'price_history'
     
     id = Column(Integer, primary_key=True)
+    metal_type = Column(String(20), default='silver', index=True)  # silver, gold, platinum, palladium
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     price = Column(Float, nullable=False)
     source = Column(String(200))  # URL of the source
     created_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):
-        return f"<PriceHistory ${self.price:.2f} at {self.timestamp}>"
+        return f"<PriceHistory {self.metal_type} ${self.price:.2f} at {self.timestamp}>"
 
 
 class Settings(Base):
@@ -484,18 +485,25 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def save_price_history(self, price: float, source: str = None) -> bool:
-        """Save a price history entry (every other scrape)"""
+    def save_price_history(self, price: float, source: str = None, metal_type: str = 'silver') -> bool:
+        """Save a price history entry (every other scrape)
+        
+        Args:
+            price: The price to save
+            source: Source of the price (URL or API name)
+            metal_type: Type of metal ('silver', 'gold', 'platinum', 'palladium')
+        """
         session = self.get_session()
         try:
             price_history = PriceHistory(
+                metal_type=metal_type,
                 price=price,
                 source=source
             )
             
             session.add(price_history)
             session.commit()
-            logger.debug(f"Saved price history: ${price:.2f} from {source}")
+            logger.debug(f"Saved {metal_type} price history: ${price:.2f} from {source}")
             return True
             
         except Exception as e:
@@ -505,14 +513,20 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def get_price_history(self, days: int = 30) -> list:
-        """Get price history for the last N days"""
+    def get_price_history(self, days: int = 30, metal_type: str = 'silver') -> list:
+        """Get price history for the last N days for a specific metal
+        
+        Args:
+            days: Number of days to look back
+            metal_type: Type of metal ('silver', 'gold', 'platinum', 'palladium')
+        """
         session = self.get_session()
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             
-            price_history = session.query(PriceHistory).filter(
-                PriceHistory.timestamp >= cutoff_date
+            query = session.query(PriceHistory).filter(
+                PriceHistory.timestamp >= cutoff_date,
+                PriceHistory.metal_type == metal_type
             ).order_by(PriceHistory.timestamp.asc()).all()
             
             return [
@@ -521,7 +535,7 @@ class DatabaseManager:
                     'price': ph.price,
                     'source': ph.source
                 }
-                for ph in price_history
+                for ph in query
             ]
             
         except Exception as e:
