@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class MultiMetalSpotPrice:
     """
-    Fetch spot prices for multiple precious metals using CoinGecko API
+    Fetch spot prices for multiple precious metals using CoinGecko API with fallback sources
     """
     
     def __init__(self):
@@ -23,10 +23,17 @@ class MultiMetalSpotPrice:
         # Mapping of our metal names to CoinGecko IDs
         self.metal_mapping = {
             'silver': 'silver',
-            'gold': 'pax-gold',  # PAX Gold token tracks gold price accurately
+            'gold': 'gold',  # Use actual gold, not pax-gold token
             'platinum': 'platinum',
             'palladium': 'palladium'
         }
+        
+        # Fallback scraping URLs for gold
+        self.gold_fallback_urls = [
+            'https://www.kitco.com/market/',
+            'https://www.goldprice.org/',
+            'https://www.monex.com/gold-prices/'
+        ]
         
         self.session = requests.Session()
         self.session.headers.update({
@@ -38,6 +45,142 @@ class MultiMetalSpotPrice:
         self._cache_duration = timedelta(minutes=5)
         self._last_request_time = 0
         self._min_request_interval = 2
+    
+    def _scrape_gold_price_kitco(self) -> Optional[float]:
+        """Scrape gold price from Kitco as fallback"""
+        try:
+            response = self.session.get('https://www.kitco.com/market/', timeout=10)
+            response.raise_for_status()
+            
+            # Look for gold price in the HTML - try multiple patterns
+            import re
+            
+            # Pattern 1: Look for "Gold" followed by price
+            patterns = [
+                r'Gold[^$]*\$([0-9,]+\.[0-9]{2})',
+                r'GOLD[^$]*\$([0-9,]+\.[0-9]{2})',
+                r'XAU[^$]*\$([0-9,]+\.[0-9]{2})',
+                r'gold-price[^>]*>.*?\$([0-9,]+\.[0-9]{2})',
+            ]
+            
+            for pattern in patterns:
+                matches = re.findall(pattern, response.text, re.IGNORECASE)
+                for match in matches:
+                    try:
+                        price_str = match.replace(',', '')
+                        price = float(price_str)
+                        if self._is_price_valid('gold', price):
+                            logger.info(f"Scraped gold price from Kitco: ${price:.2f}/oz")
+                            return price
+                    except:
+                        continue
+        except Exception as e:
+            logger.debug(f"Failed to scrape Kitco: {e}")
+        
+        return None
+    
+    def _scrape_gold_price_goldprice_org(self) -> Optional[float]:
+        """Scrape gold price from GoldPrice.org as fallback"""
+        try:
+            response = self.session.get('https://www.goldprice.org/', timeout=10)
+            response.raise_for_status()
+            
+            # Look for gold price in specific elements
+            import re
+            
+            # Try to find the main gold price display
+            # GoldPrice.org typically shows: "Gold Price Per Ounce: $X,XXX.XX"
+            patterns = [
+                r'Gold Price Per Ounce[:\s]*\$([0-9,]+\.[0-9]{2})',
+                r'gold-price[^>]*>.*?\$([0-9,]+\.[0-9]{2})',
+                r'spot[^>]*gold[^>]*>.*?\$([0-9,]+\.[0-9]{2})',
+                r'<span[^>]*gold[^>]*>.*?\$([0-9,]+\.[0-9]{2})',
+            ]
+            
+            for pattern in patterns:
+                matches = re.findall(pattern, response.text, re.IGNORECASE)
+                for match in matches:
+                    try:
+                        price = float(match.replace(',', ''))
+                        if self._is_price_valid('gold', price):
+                            logger.info(f"Scraped gold price from GoldPrice.org: ${price:.2f}/oz")
+                            return price
+                    except:
+                        continue
+        except Exception as e:
+            logger.debug(f"Failed to scrape GoldPrice.org: {e}")
+        
+        return None
+    
+    def _get_gold_price_yahoo_finance(self) -> Optional[float]:
+        """Get gold price from Yahoo Finance (GC=F ticker)"""
+        try:
+            # Yahoo Finance gold futures ticker
+            url = 'https://query1.finance.yahoo.com/v8/finance/chart/GC=F'
+            response = self.session.get(url, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract current price from chart data
+            if 'chart' in data and 'result' in data['chart']:
+                result = data['chart']['result'][0]
+                if 'meta' in result and 'regularMarketPrice' in result['meta']:
+                    price = result['meta']['regularMarketPrice']
+                    if self._is_price_valid('gold', price):
+                        logger.info(f"Got gold price from Yahoo Finance: ${price:.2f}/oz")
+                        return price
+        except Exception as e:
+            logger.debug(f"Failed to get Yahoo Finance gold price: {e}")
+        
+        return None
+    
+    def _get_gold_price_with_fallback(self) -> Dict:
+        """Get gold price with multiple fallback sources"""
+        # Try CoinGecko first
+        result = self.get_spot_price('gold')
+        if result.get('spot_price'):
+            return result
+        
+        logger.warning("CoinGecko gold price unavailable, trying fallback sources...")
+        
+        # Try Yahoo Finance (most reliable)
+        price = self._get_gold_price_yahoo_finance()
+        if price:
+            return {
+                'spot_price': price,
+                'source': 'Yahoo Finance',
+                'timestamp': datetime.now().isoformat(),
+                'verified': True
+            }
+        
+        # Try Kitco
+        price = self._scrape_gold_price_kitco()
+        if price:
+            return {
+                'spot_price': price,
+                'source': 'Kitco (scraped)',
+                'timestamp': datetime.now().isoformat(),
+                'verified': True
+            }
+        
+        # Try GoldPrice.org
+        price = self._scrape_gold_price_goldprice_org()
+        if price:
+            return {
+                'spot_price': price,
+                'source': 'GoldPrice.org (scraped)',
+                'timestamp': datetime.now().isoformat(),
+                'verified': True
+            }
+        
+        logger.error("All gold price sources failed")
+        return {
+            'spot_price': None,
+            'source': 'None',
+            'timestamp': datetime.now().isoformat(),
+            'verified': False
+        }
     
     def get_spot_price(self, metal_type: str) -> Dict:
         """
@@ -208,9 +351,10 @@ class MultiMetalSpotPrice:
     def get_gold_price_info(self) -> Dict:
         """
         Get gold spot price with threshold calculation
+        Uses fallback sources if CoinGecko fails
         Returns dict with spot_price, threshold, source, timestamp
         """
-        price_info = self.get_spot_price('gold')
+        price_info = self._get_gold_price_with_fallback()
         spot_price = price_info.get('spot_price')
         
         if spot_price:
