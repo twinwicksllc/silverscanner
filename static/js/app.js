@@ -122,6 +122,11 @@ async function fetchDeals(metalType = null) {
     
     // Use provided metalType or current filter
     const metal = metalType || AppState.currentMetal || 'silver';
+    
+    // Clear deals immediately to show loading/empty state
+    AppState.deals = [];
+    updateDealsTable();
+    
     try {
         const response = await fetch(`/api/deals?limit=50&amp;metal_type=${metal}`);
         console.log('fetchDeals response status:', response.status);
@@ -130,6 +135,7 @@ async function fetchDeals(metalType = null) {
         
         if (data.success) {
             AppState.deals = data.data;
+            console.log(`Updated AppState.deals with ${data.data.length} ${metal} deals`);
             updateDealsTable();
         }
     } catch (error) {
@@ -664,7 +670,8 @@ function updateMetalLabels(metalType) {
     const elements = {
         'metal-name': metalName,
         'chart-metal-name': metalName,
-        'deals-metal-name': metalName
+        'deals-metal-name': metalName,
+        'empty-metal-name': metalName
     };
     
     Object.entries(elements).forEach(([id, text]) => {
@@ -673,6 +680,12 @@ function updateMetalLabels(metalType) {
             element.textContent = text;
         }
     });
+    
+    // Update empty message text
+    const emptyMessage = document.getElementById('empty-message');
+    if (emptyMessage) {
+        emptyMessage.textContent = `Start a scan to search eBay for undervalued ${metalType} deals`;
+    }
     
     // Update threshold subtext based on metal
     const thresholdSubtext = document.getElementById('threshold-subtext');

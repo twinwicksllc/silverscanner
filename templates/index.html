@@ -160,9 +160,9 @@
         <!-- Empty State -->
         <div id="empty-state" class="empty-state" style="{% if recent_deals %}display: none;{% endif %}">
             <div class="icon">🔍</div>
-            <h3>No Deals Found Yet</h3>
-            <p>Start a scan to search eBay for undervalued silver deals</p>
-            <button id="first-scan-button" class="btn btn-primary">
+            <h3>No <span id="empty-metal-name">Silver</span> Deals Found Yet</h3>
+            <p id="empty-message">Start a scan to search eBay for undervalued silver deals</p>
+            <button id="first-scan-button" class="btn btn-primary" onclick="startScan()">
                 Start First Scan
             </button>
         </div>
@@ -297,6 +297,59 @@
         function updatePriceChart(priceData) {
             const ctx = document.getElementById('price-history-chart').getContext('2d');
             
+            // Get current metal type from AppState
+            const metalType = AppState.currentMetal || 'silver';
+            const metalName = metalType.charAt(0).toUpperCase() + metalType.slice(1);
+            const metalColor = metalType === 'gold' ? 'rgb(255, 215, 0)' : 'rgb(75, 192, 192)';
+            const metalBgColor = metalType === 'gold' ? 'rgba(255, 215, 0, 0.1)' : 'rgba(75, 192, 192, 0.1)';
+            
+            // Check if there's data
+            if (!priceData || priceData.length === 0) {
+                // Show empty chart with appropriate message
+                if (priceChart) {
+                    priceChart.destroy();
+                }
+                
+                const emptyChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: ['No Data'],
+                        datasets: [{
+                            label: `${metalName} Spot Price ($/oz)`,
+                            data: [null],
+                            borderColor: metalColor,
+                            backgroundColor: metalBgColor,
+                            fill: false,
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            title: {
+                                display: true,
+                                text: `No ${metalName} price history available yet. Run a scan to start collecting data.`
+                            }
+                        },
+                        scales: {
+                            y: {
+                                display: false
+                            },
+                            x: {
+                                display: false
+                            }
+                        }
+                    }
+                });
+                
+                priceChart = emptyChart;
+                return;
+            }
+            
             const labels = priceData.map(item => {
                 const date = new Date(item.timestamp);
                 return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -313,10 +366,10 @@
                 data: {
                     labels: labels,
                     datasets: [{
-                        label: 'Silver Spot Price ($/oz)',
+                        label: `${metalName} Spot Price ($/oz)`,
                         data: prices,
-                        borderColor: 'rgb(75, 192, 192)',
-                        backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                        borderColor: metalColor,
+                        backgroundColor: metalBgColor,
                         fill: true,
                         tension: 0.1,
                         pointRadius: 2,
