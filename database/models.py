@@ -27,10 +27,13 @@ class Deal(Base):
     shipping_cost = Column(Float, nullable=False)
     total_cost = Column(Float, nullable=False)
     
-    # Silver content info
+    # Metal content info
+    metal_type = Column(String(20), default='silver', index=True)  # silver, gold, platinum, palladium
+    metal_purity = Column(Float, default=1.0)  # 1.0 = pure, 0.9 = 90%, etc.
     coin_type = Column(String(100))
     coin_name = Column(String(200))
-    silver_weight_oz = Column(Float, nullable=False)
+    silver_weight_oz = Column(Float, nullable=False)  # Keep for backward compatibility
+    metal_weight_oz = Column(Float, nullable=False)  # New unified column
     quantity = Column(Integer, default=1)
     face_value = Column(Float, default=0.0)
     
@@ -207,9 +210,12 @@ class DatabaseManager:
                 existing.price = deal_data['price']
                 existing.shipping_cost = deal_data['shipping_cost']
                 existing.total_cost = deal_data['total_cost']
+                existing.metal_type = deal_data.get('metal_type', 'silver')
+                existing.metal_purity = deal_data.get('asw_info', {}).get('purity', 1.0)
                 existing.coin_type = deal_data.get('asw_info', {}).get('coin_type')
                 existing.coin_name = deal_data.get('asw_info', {}).get('coin_name')
-                existing.silver_weight_oz = deal_data.get('asw_info', {}).get('asw')
+                existing.silver_weight_oz = deal_data.get('asw_info', {}).get('asw')  # Backward compatibility
+                existing.metal_weight_oz = deal_data.get('asw_info', {}).get('asw')  # New unified column
                 existing.quantity = deal_data.get('asw_info', {}).get('quantity', 1)
                 existing.face_value = deal_data.get('asw_info', {}).get('face_value', 0.0)
                 existing.spot_price = deal_data.get('metrics', {}).get('spot_price')
@@ -243,9 +249,12 @@ class DatabaseManager:
                     price=deal_data['price'],
                     shipping_cost=deal_data['shipping_cost'],
                     total_cost=deal_data['total_cost'],
+                    metal_type=deal_data.get('metal_type', 'silver'),
+                    metal_purity=deal_data.get('asw_info', {}).get('purity', 1.0),
                     coin_type=deal_data.get('asw_info', {}).get('coin_type'),
                     coin_name=deal_data.get('asw_info', {}).get('coin_name'),
-                    silver_weight_oz=deal_data.get('asw_info', {}).get('asw'),
+                    silver_weight_oz=deal_data.get('asw_info', {}).get('asw'),  # Backward compatibility
+                    metal_weight_oz=deal_data.get('asw_info', {}).get('asw'),  # New unified column
                     quantity=deal_data.get('asw_info', {}).get('quantity', 1),
                     face_value=deal_data.get('asw_info', {}).get('face_value', 0.0),
                     spot_price=deal_data.get('metrics', {}).get('spot_price'),
@@ -391,8 +400,11 @@ class DatabaseManager:
             'price': deal.price,
             'shipping_cost': deal.shipping_cost,
             'total_cost': deal.total_cost,
+            'metal_type': deal.metal_type if hasattr(deal, 'metal_type') else 'silver',
+            'metal_purity': deal.metal_purity if hasattr(deal, 'metal_purity') else 1.0,
             'coin_name': deal.coin_name,
             'silver_weight_oz': deal.silver_weight_oz,
+            'metal_weight_oz': deal.metal_weight_oz if hasattr(deal, 'metal_weight_oz') else deal.silver_weight_oz,
             'spot_price': deal.spot_price,
             'cost_per_oz': deal.cost_per_oz,
             'discount_percent': deal.discount_percent,

@@ -724,45 +724,42 @@ def migrate_metal_support():
             'error': 'Unauthorized'
         }), 401
     
-    database_url = os.getenv('DATABASE_URL')
-    
-    if not database_url:
-        return jsonify({
-            'success': False,
-            'error': 'DATABASE_URL not configured'
-        }), 500
-    
     try:
-        from sqlalchemy import create_engine, text
-        engine = create_engine(database_url)
+        import sys
+        import os
         
-        # Read migration SQL
-        migration_path = os.path.join(os.path.dirname(__file__), 'migrations', 'add_metal_type_support.sql')
-        with open(migration_path, 'r') as f:
-            migration_sql = f.read()
+        # Import and run the migration script
+        migration_path = os.path.join(os.path.dirname(__file__), 'migrations', 'run_multi_metal_migration.py')
         
-        # Execute migration
-        with engine.connect() as conn:
-            # Split by semicolon and execute each statement
-            statements = [s.strip() for s in migration_sql.split(';') if s.strip() and not s.strip().startswith('--')]
-            
-            for statement in statements:
-                if statement:
-                    conn.execute(text(statement))
-                    conn.commit()
+        # Import the migration module
+        sys.path.insert(0, os.path.dirname(migration_path))
+        from run_multi_metal_migration import main as run_migration
+        
+        # Run migration (capture stdout to get results)
+        import io
+        from contextlib import redirect_stdout
+        
+        output = io.StringIO()
+        with redirect_stdout(output):
+            run_migration()
+        
+        migration_output = output.getvalue()
         
         logger.info("Multi-metal support migration completed successfully")
         
         return jsonify({
             'success': True,
             'message': 'Multi-metal support migration completed',
+            'output': migration_output,
             'columns_added': ['metal_type', 'metal_purity'],
             'tables_created': ['spot_prices'],
-            'indexes_created': ['idx_deals_metal_type', 'idx_deals_metal_weight', 'idx_spot_prices_metal_timestamp']
+            'indexes_created': ['idx_deals_metal_type', 'idx_spot_prices_metal_timestamp']
         })
     
     except Exception as e:
         logger.error(f"Migration failed: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'success': False,
             'error': str(e)
