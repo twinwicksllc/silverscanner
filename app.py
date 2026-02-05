@@ -302,17 +302,21 @@ def run_background_scan(metal_type: str = 'silver'):
         logger.info(f"Background {metal_type} scan started")
         scan_state['is_scanning'] = True
 
+        # Create a new DealScanner instance for this specific metal type
+        # This ensures the correct calculator is initialized
+        scanner = DealScanner(metal_type=metal_type)
+        
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
         logger.info(f"Fetching fresh {metal_type} spot price for scan...")
         if metal_type == 'gold':
-            deal_scanner.spot_price.get_gold_price_info()
+            scanner.spot_price.get_gold_price_info()
         else:
-            deal_scanner.spot_price.get_silver_price_info()
+            scanner.spot_price.get_silver_price_info()
         logger.info("Spot price fetch complete")
 
         # Perform scan with specified metal type
-        deals = deal_scanner.perform_scan(metal_type=metal_type)
-        total_items_scanned = deal_scanner.items_scanned
+        deals = scanner.perform_scan()
+        total_items_scanned = scanner.items_scanned
 
         # Save deals to database
         saved_count = 0
@@ -321,7 +325,7 @@ def run_background_scan(metal_type: str = 'silver'):
                 saved_count += 1
 
         # Save scan history
-        summary = deal_scanner.get_deal_summary()
+        summary = scanner.get_deal_summary()
         scan_id = summary.get('scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
         scan_end = datetime.utcnow()
 
@@ -342,7 +346,7 @@ def run_background_scan(metal_type: str = 'silver'):
 
         # Update scan state
         scan_state['last_scan_time'] = datetime.now().isoformat()
-        scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
+        scan_state['scan_results'] = scanner.get_all_formatted_deals()
         scan_state['items_scanned'] = total_items_scanned
         logger.info(f"Background {metal_type} scan complete: {len(deals)} deals found, {saved_count} saved to database")
 
