@@ -704,6 +704,37 @@ if __name__ == '__main__':
             digest_scheduler.stop()
         except:
             pass
+@app.route('/admin/test/db', methods=['GET'])
+def test_db_connection():
+    """Test database connection"""
+    try:
+        from sqlalchemy import create_engine, text
+        database_url = os.getenv('DATABASE_URL')
+        
+        if not database_url:
+            return jsonify({
+                'success': False,
+                'error': 'DATABASE_URL not configured'
+            }), 500
+        
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT version();" if 'postgresql' in database_url else "SELECT sqlite_version();"))
+            version = result.fetchone()
+            
+            return jsonify({
+                'success': True,
+                'database_type': 'PostgreSQL' if 'postgresql' in database_url else 'SQLite',
+                'version': str(version[0]),
+                'database_url_preview': database_url[:50] + '...'
+            })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/admin/migrate/metal_support', methods=['POST'])
 def migrate_metal_support():
     """
