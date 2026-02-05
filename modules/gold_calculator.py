@@ -392,3 +392,91 @@ class GoldCalculator:
                 return None
         
         return None
+    
+    def calculate_deal_metrics(self, item: Dict, gold_result: Dict, spot_price: float) -> Dict:
+        """
+        Calculate deal metrics for a gold item
+        
+        Args:
+            item: Item details dictionary
+            gold_result: Gold calculation result from calculate_agw
+            spot_price: Current spot price for gold
+            
+        Returns:
+            Dictionary with deal metrics
+        """
+        total_cost = item.get('total_cost', 0.0)
+        agw = gold_result.get('agw', 0.0)
+        
+        # Gold threshold: 85% of spot price (15% discount)
+        threshold = spot_price * 0.85
+        
+        metrics = {
+            'total_cost': total_cost,
+            'agw': agw,
+            'spot_price': spot_price,
+            'cost_per_oz': 0.0,
+            'discount_percent': 0.0,
+            'is_deal': False,
+            'threshold': threshold,
+            'savings_per_oz': 0.0
+        }
+        
+        if agw > 0 and total_cost > 0:
+            metrics['cost_per_oz'] = total_cost / agw
+            metrics['discount_percent'] = ((spot_price - metrics['cost_per_oz']) / spot_price) * 100
+            metrics['savings_per_oz'] = spot_price - metrics['cost_per_oz']
+            
+            # Check if it's a deal
+            if metrics['cost_per_oz'] <= metrics['threshold']:
+                metrics['is_deal'] = True
+            
+            # Sanity checks for gold
+            if metrics['cost_per_oz'] < 1000:  # Too cheap to be real gold
+                metrics['is_deal'] = False
+                logger.warning(f"Suspiciously low cost per oz for gold: ${metrics['cost_per_oz']:.2f}")
+            elif metrics['cost_per_oz'] > 5000:  # Too expensive
+                metrics['is_deal'] = False
+        
+        return metrics
+    
+    def validate_deal(self, item: Dict, metrics: Dict) -> bool:
+        """
+        Validate if a gold deal meets all criteria
+        
+        Args:
+            item: Item details dictionary
+            metrics: Deal metrics dictionary
+            
+        Returns:
+            True if valid deal, False otherwise
+        """
+        # Check discount threshold
+        if not metrics['is_deal']:
+            return False
+        
+        # Check seller feedback
+        seller_feedback = item.get('seller_feedback', 0.0)
+        if seller_feedback < Config.MIN_SELLER_FEEDBACK:
+            logger.info(f"Rejected: Seller feedback {seller_feedback}% below minimum {Config.MIN_SELLER_FEEDBACK}%")
+            return False
+        
+        # Check condition
+        condition = item.get('condition', '').lower()
+        if 'unknown' in condition or 'not specified' in condition:
+            logger.info(f"Rejected: Unclear condition: {condition}")
+            return False
+        
+        # Check shipping cost
+        shipping_cost = item.get('shipping_cost', 0.0)
+        if shipping_cost > Config.MAX_SHIPPING_COST:
+            logger.info(f"Rejected: Shipping cost ${shipping_cost:.2f} exceeds maximum ${Config.MAX_SHIPPING_COST}")
+            return False
+        
+        # Check price range (gold should be expensive enough)
+        total_cost = item.get('total_cost', 0.0)
+        if total_cost < 500:  # Too cheap for gold
+            logger.info(f"Rejected: Price ${total_cost:.2f} too low for gold")
+            return False
+        
+        return True

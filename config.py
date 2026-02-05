@@ -45,6 +45,7 @@ class Config:
     
     # Multi-Metal Support
     METALS_ENABLED = os.getenv('METALS_ENABLED', 'silver,gold').split(',')
+    SUPPORTED_METALS = ['silver', 'gold', 'platinum', 'palladium']
     
     # Metal-specific thresholds (percentage of spot price)
     METAL_THRESHOLDS = {

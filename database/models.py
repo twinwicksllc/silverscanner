@@ -198,6 +198,22 @@ class DatabaseManager:
             # Check if deal already exists by item_id
             existing = session.query(Deal).filter_by(item_id=deal_data['item_id']).first()
             
+            # Extract metal-specific information
+            metal_type = deal_data.get('metal_type', 'silver')
+            
+            if metal_type == 'gold':
+                metal_info = deal_data.get('gold_info', {})
+                metal_weight_oz = metal_info.get('gold_weight_oz', 0)
+                metal_purity = metal_info.get('purity_decimal', 1.0)
+                confidence = metal_info.get('confidence', 0)
+                coin_name = metal_info.get('purity_str', 'Gold')
+            else:
+                metal_info = deal_data.get('asw_info', {})
+                metal_weight_oz = metal_info.get('asw', 0)
+                metal_purity = metal_info.get('purity', 0.9)
+                confidence = metal_info.get('confidence', 0)
+                coin_name = metal_info.get('coin_name', 'Silver')
+            
             if existing:
                 # Preserve is_hidden flag during update
                 was_hidden = existing.is_hidden
@@ -210,14 +226,14 @@ class DatabaseManager:
                 existing.price = deal_data['price']
                 existing.shipping_cost = deal_data['shipping_cost']
                 existing.total_cost = deal_data['total_cost']
-                existing.metal_type = deal_data.get('metal_type', 'silver')
-                existing.metal_purity = deal_data.get('asw_info', {}).get('purity', 1.0)
-                existing.coin_type = deal_data.get('asw_info', {}).get('coin_type')
-                existing.coin_name = deal_data.get('asw_info', {}).get('coin_name')
-                existing.silver_weight_oz = deal_data.get('asw_info', {}).get('asw')  # Backward compatibility
-                existing.metal_weight_oz = deal_data.get('asw_info', {}).get('asw')  # New unified column
-                existing.quantity = deal_data.get('asw_info', {}).get('quantity', 1)
-                existing.face_value = deal_data.get('asw_info', {}).get('face_value', 0.0)
+                existing.metal_type = metal_type
+                existing.metal_purity = metal_purity
+                existing.coin_type = metal_info.get('coin_type')
+                existing.coin_name = coin_name
+                existing.silver_weight_oz = metal_weight_oz  # Backward compatibility
+                existing.metal_weight_oz = metal_weight_oz  # New unified column
+                existing.quantity = metal_info.get('quantity', 1)
+                existing.face_value = metal_info.get('face_value', 0.0)
                 existing.spot_price = deal_data.get('metrics', {}).get('spot_price')
                 existing.cost_per_oz = deal_data.get('metrics', {}).get('cost_per_oz')
                 existing.discount_percent = deal_data.get('metrics', {}).get('discount_percent')
@@ -232,7 +248,7 @@ class DatabaseManager:
                 existing.item_end_date = deal_data.get('item_end_date')
                 existing.last_seen_in_scan = datetime.utcnow()  # Update last seen time
                 existing.scan_id = deal_data.get('scan_id')
-                existing.confidence = deal_data.get('asw_info', {}).get('confidence')
+                existing.confidence = confidence
                 
                 # Preserve is_hidden flag
                 existing.is_hidden = was_hidden
@@ -249,14 +265,14 @@ class DatabaseManager:
                     price=deal_data['price'],
                     shipping_cost=deal_data['shipping_cost'],
                     total_cost=deal_data['total_cost'],
-                    metal_type=deal_data.get('metal_type', 'silver'),
-                    metal_purity=deal_data.get('asw_info', {}).get('purity', 1.0),
-                    coin_type=deal_data.get('asw_info', {}).get('coin_type'),
-                    coin_name=deal_data.get('asw_info', {}).get('coin_name'),
-                    silver_weight_oz=deal_data.get('asw_info', {}).get('asw'),  # Backward compatibility
-                    metal_weight_oz=deal_data.get('asw_info', {}).get('asw'),  # New unified column
-                    quantity=deal_data.get('asw_info', {}).get('quantity', 1),
-                    face_value=deal_data.get('asw_info', {}).get('face_value', 0.0),
+                    metal_type=metal_type,
+                    metal_purity=metal_purity,
+                    coin_type=metal_info.get('coin_type'),
+                    coin_name=coin_name,
+                    silver_weight_oz=metal_weight_oz,  # Backward compatibility
+                    metal_weight_oz=metal_weight_oz,  # New unified column
+                    quantity=metal_info.get('quantity', 1),
+                    face_value=metal_info.get('face_value', 0.0),
                     spot_price=deal_data.get('metrics', {}).get('spot_price'),
                     cost_per_oz=deal_data.get('metrics', {}).get('cost_per_oz'),
                     discount_percent=deal_data.get('metrics', {}).get('discount_percent'),
@@ -271,7 +287,7 @@ class DatabaseManager:
                     item_end_date=deal_data.get('item_end_date'),
                     last_seen_in_scan=datetime.utcnow(),  # Track when deal was last seen
                     scan_id=deal_data.get('scan_id'),
-                    confidence=deal_data.get('asw_info', {}).get('confidence'),
+                    confidence=confidence,
                     is_hidden=False,
                     hidden_at=None
                 )
@@ -319,13 +335,22 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def get_recent_deals(self, limit: int = 50) -> list:
-        """Get recent deals from database (excluding hidden deals)"""
+    def get_recent_deals(self, limit: int = 50, metal_type: str = 'all') -> list:
+        """Get recent deals from database (excluding hidden deals)
+        
+        Args:
+            limit: Maximum number of deals to return
+            metal_type: Filter by metal type ('silver', 'gold', or 'all')
+        """
         session = self.get_session()
         try:
-            deals = session.query(Deal).filter_by(is_hidden=False).order_by(
-                Deal.qualified_at.desc()
-            ).limit(limit).all()
+            query = session.query(Deal).filter_by(is_hidden=False)
+            
+            # Filter by metal type if specified
+            if metal_type != 'all':
+                query = query.filter_by(metal_type=metal_type)
+            
+            deals = query.order_by(Deal.qualified_at.desc()).limit(limit).all()
             
             return [self._deal_to_dict(deal) for deal in deals]
             

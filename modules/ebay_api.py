@@ -141,6 +141,34 @@ class eBayAPI:
         logger.info(f"Total unique listings found: {len(all_items)}")
         return all_items
     
+    def get_all_gold_listings(self) -> List[Dict]:
+        """
+        Search for gold listings across all configured keywords and categories
+        """
+        all_items = []
+        seen_item_ids = set()
+        
+        # Search in coins category
+        for keyword in Config.GOLD_SEARCH_KEYWORDS:
+            items = self.search_listings(keyword, Config.EBAY_CATEGORY_COINS)
+            for item in items:
+                item_id = item.get('itemId')
+                if item_id and item_id not in seen_item_ids:
+                    all_items.append(item)
+                    seen_item_ids.add(item_id)
+        
+        # Search in bullion category for gold
+        for keyword in ['gold bullion', 'gold bars', 'gold rounds']:
+            items = self.search_listings(keyword, Config.EBAY_CATEGORY_BULLION)
+            for item in items:
+                item_id = item.get('itemId')
+                if item_id and item_id not in seen_item_ids:
+                    all_items.append(item)
+                    seen_item_ids.add(item_id)
+        
+        logger.info(f"Total unique gold listings found: {len(all_items)}")
+        return all_items
+    
     def extract_item_details(self, item: Dict) -> Dict:
         """
         Extract relevant details from eBay item response

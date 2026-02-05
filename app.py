@@ -201,26 +201,34 @@ def api_price():
             'error': str(e)
         }), 500
 
-def run_background_scan():
-    """Background thread function to perform scan"""
+def run_background_scan(metal_type: str = 'silver'):
+    """Background thread function to perform scan
+    
+    Args:
+        metal_type: Type of metal to scan for ('silver' or 'gold')
+    """
     global scan_state
     scan_start = datetime.utcnow()
     scan_state['scan_start_time'] = scan_start
     scan_state['items_scanned'] = 0
     scan_state['elapsed_time'] = 0
     scan_state['scan_error'] = None
+    scan_state['metal_type'] = metal_type
 
     try:
-        logger.info("Background scan started")
+        logger.info(f"Background {metal_type} scan started")
         scan_state['is_scanning'] = True
 
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
-        logger.info("Fetching fresh spot price for scan...")
-        spot_price.get_price_info()
+        logger.info(f"Fetching fresh {metal_type} spot price for scan...")
+        if metal_type == 'gold':
+            deal_scanner.spot_price.get_gold_price_info()
+        else:
+            deal_scanner.spot_price.get_silver_price_info()
         logger.info("Spot price fetch complete")
 
-        # Perform scan
-        deals = deal_scanner.perform_scan()
+        # Perform scan with specified metal type
+        deals = deal_scanner.perform_scan(metal_type=metal_type)
         total_items_scanned = deal_scanner.items_scanned
 
         # Save deals to database
@@ -253,7 +261,7 @@ def run_background_scan():
         scan_state['last_scan_time'] = datetime.now().isoformat()
         scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
         scan_state['items_scanned'] = total_items_scanned
-        logger.info(f"Background scan complete: {len(deals)} deals found, {saved_count} saved to database")
+        logger.info(f"Background {metal_type} scan complete: {len(deals)} deals found, {saved_count} saved to database")
 
     except Exception as e:
         logger.error(f"Error during background scan: {e}")
@@ -270,7 +278,9 @@ def run_background_scan():
 
 @app.route('/api/scan', methods=['POST'])
 def api_scan():
-    """API endpoint to trigger a scan - runs in background thread"""
+    """API endpoint to trigger a scan - runs in background thread
+    Supports metal_type parameter: 'silver' (default) or 'gold'
+    """
     global scan_state
     
     if scan_state['is_scanning']:
@@ -283,20 +293,30 @@ def api_scan():
         scan_state['is_scanning'] = True
         scan_state['scan_error'] = None
         
-        logger.info("Manual scan triggered via API - starting background thread")
+        # Get metal type from request (default to silver)
+        metal_type = request.json.get('metal_type', 'silver') if request.is_json else 'silver'
         
-        # Start scan in background thread
+        if metal_type not in ['silver', 'gold']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver" or "gold"'
+            }), 400
+        
+        logger.info(f"Manual {metal_type} scan triggered via API - starting background thread")
+        
+        # Start scan in background thread with metal type
         import threading
-        scan_thread = threading.Thread(target=run_background_scan, daemon=True)
+        scan_thread = threading.Thread(target=run_background_scan, args=(metal_type,), daemon=True)
         scan_thread.start()
         
         # Return immediately without waiting for scan to complete
         return jsonify({
             'success': True,
-            'message': 'Scan started in background',
+            'message': f'{metal_type.capitalize()} scan started in background',
             'data': {
                 'status': 'running',
-                'message': 'Scan is running in the background. Check status with /api/scan/status'
+                'metal_type': metal_type,
+                'message': f'{metal_type.capitalize()} scan is running in the background. Check status with /api/scan/status'
             }
         })
     
@@ -308,26 +328,37 @@ def api_scan():
             'success': False,
             'error': str(e)
         }), 500
-        
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @app.route('/api/deals')
 def api_deals():
-    """API endpoint to get deals"""
+    """API endpoint to get deals
+    Supports filtering by metal_type parameter: 'silver', 'gold', or 'all' (default)
+    """
     try:
         limit = request.args.get('limit', 50, type=int)
-        deals = db_manager.get_recent_deals(limit=limit)
+        metal_type = request.args.get('metal_type', 'all')
+        
+        # Validate metal_type
+        if metal_type not in ['silver', 'gold', 'all']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver", "gold", or "all"'
+            }), 400
+        
+        deals = db_manager.get_recent_deals(limit=limit, metal_type=metal_type)
         
         return jsonify({
             'success': True,
-            'data': deals
+            'data': deals,
+            'metal_type': metal_type,
+            'count': len(deals)
         })
     except Exception as e:
         logger.error(f"Error getting deals: {e}")
         return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
             'success': False,
             'error': str(e)
         }), 500

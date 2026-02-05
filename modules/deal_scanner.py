@@ -1,14 +1,16 @@
-"""
-Deal Scanner Module
+"""Deal Scanner Module
 Main scanning logic that orchestrates the deal detection process
+Supports both silver and gold scanning
 """
 
 import logging
 from datetime import datetime
 from typing import List, Dict, Optional
 from modules.spot_price import SilverSpotPrice
+from modules.multi_metal_spot_price import MultiMetalSpotPrice
 from modules.ebay_api import eBayAPI
 from modules.asw_calculator import ASWCalculator
+from modules.gold_calculator import GoldCalculator
 from modules.notifications import EmailNotifier
 from database.models import DatabaseManager
 from config import Config
@@ -16,38 +18,55 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 class DealScanner:
-    """Main deal scanner that coordinates all components"""
+    """Main deal scanner that coordinates all components and supports multiple metals"""
     
-    def __init__(self):
-        self.spot_price = SilverSpotPrice()
+    def __init__(self, metal_type: str = 'silver'):
+        """
+        Initialize the deal scanner
+        Args:
+            metal_type: Type of metal to scan for ('silver' or 'gold')
+        """
+        self.metal_type = metal_type
+        self.spot_price = MultiMetalSpotPrice()  # Updated to use multi-metal
         self.ebay_api = eBayAPI()
         self.asw_calculator = ASWCalculator()
+        self.gold_calculator = GoldCalculator() if metal_type == 'gold' else None
         self.db_manager = DatabaseManager()
         self.email_notifier = EmailNotifier(self.db_manager)
         self.scan_results = []
         self.items_scanned = 0
         
-    def perform_scan(self) -> List[Dict]:
+    def perform_scan(self, metal_type: Optional[str] = None) -> List[Dict]:
         """
-        Perform a complete scan for silver deals
+        Perform a complete scan for deals (supports both silver and gold)
         Returns list of qualified deals
+        
+        Args:
+            metal_type: Override the default metal type for this scan
         """
+        # Use provided metal_type or default to instance metal_type
+        scan_metal_type = metal_type or self.metal_type
+        
         # Generate scan_id once at the start
         scan_id = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         logger.info("="*60)
-        logger.info("Starting silver deal scan")
+        logger.info(f"Starting {scan_metal_type} deal scan")
         logger.info("="*60)
         
-        # Get current spot price
-        price_info = self.spot_price.get_price_info()
-        spot_price = price_info['spot_price']
+        # Get current spot price for the metal
+        if scan_metal_type == 'gold':
+            price_info = self.spot_price.get_gold_price_info()
+        else:
+            price_info = self.spot_price.get_silver_price_info()
+            
+        spot_price = price_info.get('spot_price')
         
         if not spot_price:
-            logger.error("Cannot perform scan: unable to get spot price")
+            logger.error(f"Cannot perform scan: unable to get {scan_metal_type} spot price")
             return []
         
-        logger.info(f"Current spot price: ${spot_price:.2f}/oz")
+        logger.info(f"Current {scan_metal_type} spot price: ${spot_price:.2f}/oz")
         logger.info(f"Deal threshold: ${price_info['threshold']:.2f}/oz")
         
         # Test eBay API connection
@@ -57,7 +76,10 @@ class DealScanner:
         
         # Search eBay listings
         logger.info("Searching eBay listings...")
-        raw_items = self.ebay_api.get_all_silver_listings()
+        if scan_metal_type == 'gold':
+            raw_items = self.ebay_api.get_all_gold_listings()
+        else:
+            raw_items = self.ebay_api.get_all_silver_listings()
         
         if not raw_items:
             logger.warning("No eBay listings found")
@@ -85,36 +107,75 @@ class DealScanner:
                 if not item_details:
                     continue
                 
-                # Calculate ASW
-                asw_result = self.asw_calculator.calculate_asw(item_details)
-                
-                if not asw_result['identified']:
-                    rejected_count += 1
-                    continue
-                
-                # Calculate deal metrics
-                deal_metrics = self.asw_calculator.calculate_deal_metrics(
-                    item_details, asw_result, spot_price
-                )
-                
-                # Check if it qualifies as a deal
-                if self.asw_calculator.validate_deal(item_details, deal_metrics):
+                # Calculate based on metal type
+                if scan_metal_type == 'gold':
+                    # Calculate gold weight and value
+                    gold_result = self.gold_calculator.calculate_agw(item_details)
+                    
+                    if not gold_result['identified']:
+                        rejected_count += 1
+                        continue
+                    
+                    # Calculate deal metrics
+                    deal_metrics = self.gold_calculator.calculate_deal_metrics(
+                        item_details, gold_result, spot_price
+                    )
+                    
+                    # Validate deal
+                    if not self.gold_calculator.validate_deal(item_details, deal_metrics):
+                        rejected_count += 1
+                        continue
+                    
                     # Combine all data
                     deal = {
                         **item_details,
-                        'asw_info': asw_result,
+                        'metal_type': 'gold',
+                        'gold_info': gold_result,
                         'metrics': deal_metrics,
                         'scan_id': scan_id,
                         'qualified_at': datetime.now().isoformat()
                     }
                     
-                    qualified_deals.append(deal)
-                    logger.info(f"✓ QUALIFIED: {item_details['title'][:50]}... "
+                else:
+                    # Silver logic (existing)
+                    asw_result = self.asw_calculator.calculate_asw(item_details)
+                    
+                    if not asw_result['identified']:
+                        rejected_count += 1
+                        continue
+                    
+                    # Calculate deal metrics
+                    deal_metrics = self.asw_calculator.calculate_deal_metrics(
+                        item_details, asw_result, spot_price
+                    )
+                    
+                    # Check if it qualifies as a deal
+                    if not self.asw_calculator.validate_deal(item_details, deal_metrics):
+                        rejected_count += 1
+                        continue
+                    
+                    # Combine all data
+                    deal = {
+                        **item_details,
+                        'metal_type': 'silver',
+                        'asw_info': asw_result,
+                        'metrics': deal_metrics,
+                        'scan_id': scan_id,
+                        'qualified_at': datetime.now().isoformat()
+                    }
+                
+                qualified_deals.append(deal)
+                
+                # Log based on metal type
+                if scan_metal_type == 'gold':
+                    logger.info(f"✓ QUALIFIED GOLD: {item_details['title'][:50]}... "
                                f"(${deal_metrics['cost_per_oz']:.2f}/oz, "
                                f"{deal_metrics['discount_percent']:.1f}% off)")
                 else:
-                    rejected_count += 1
-                    
+                    logger.info(f"✓ QUALIFIED SILVER: {item_details['title'][:50]}... "
+                               f"(${deal_metrics['cost_per_oz']:.2f}/oz, "
+                               f"{deal_metrics['discount_percent']:.1f}% off)")
+                
             except Exception as e:
                 logger.error(f"Error processing item: {e}")
                 continue
@@ -126,7 +187,7 @@ class DealScanner:
         )
         
         logger.info("="*60)
-        logger.info(f"Scan complete: {len(qualified_deals)} deals found, "
+        logger.info(f"Scan complete: {len(qualified_deals)} {scan_metal_type} deals found, "
                    f"{rejected_count} items rejected")
         logger.info("="*60)
         
@@ -173,24 +234,38 @@ class DealScanner:
                 'best_discount': 0.0,
                 'avg_discount': 0.0,
                 'total_savings': 0.0,
-                'coin_types': []
+                'coin_types': [],
+                'metal_type': self.metal_type
             }
         
         discounts = [deal['metrics']['discount_percent'] for deal in self.scan_results]
-        total_savings = sum(deal['metrics']['savings_per_oz'] * deal['asw_info']['asw'] 
-                          for deal in self.scan_results)
+        total_savings = 0.0
         
-        coin_types = {}
+        # Calculate total savings based on metal type
         for deal in self.scan_results:
-            coin_name = deal['asw_info']['coin_name']
-            coin_types[coin_name] = coin_types.get(coin_name, 0) + 1
+            if deal.get('metal_type') == 'gold':
+                gold_weight = deal.get('gold_info', {}).get('gold_weight_oz', 0)
+                total_savings += deal['metrics']['savings_per_oz'] * gold_weight
+            else:
+                silver_weight = deal.get('asw_info', {}).get('asw', 0)
+                total_savings += deal['metrics']['savings_per_oz'] * silver_weight
+        
+        # Collect item types
+        item_types = {}
+        for deal in self.scan_results:
+            if deal.get('metal_type') == 'gold':
+                item_name = deal.get('gold_info', {}).get('purity_str', 'Unknown')
+            else:
+                item_name = deal.get('asw_info', {}).get('coin_name', 'Unknown')
+            item_types[item_name] = item_types.get(item_name, 0) + 1
         
         return {
             'total_deals': len(self.scan_results),
             'best_discount': max(discounts) if discounts else 0.0,
             'avg_discount': sum(discounts) / len(discounts) if discounts else 0.0,
             'total_savings': total_savings,
-            'coin_types': coin_types,
+            'item_types': item_types,
+            'metal_type': self.metal_type,
             'scan_time': datetime.now().isoformat(),
             'scan_id': getattr(self, 'scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
         }
@@ -199,13 +274,11 @@ class DealScanner:
         """
         Format deal data for display in web interface
         """
-        return {
+        base_data = {
             'title': deal['title'],
             'price': deal['price'],
             'shipping_cost': deal['shipping_cost'],
             'total_cost': deal['total_cost'],
-            'coin_name': deal['asw_info']['coin_name'],
-            'silver_weight_oz': deal['asw_info']['asw'],
             'cost_per_oz': deal['metrics']['cost_per_oz'],
             'discount_percent': deal['metrics']['discount_percent'],
             'spot_price': deal['metrics']['spot_price'],
@@ -217,8 +290,26 @@ class DealScanner:
             'item_url': deal['item_url'],
             'image_url': deal['image_url'],
             'qualified_at': deal['qualified_at'],
-            'confidence': deal['asw_info']['confidence']
+            'metal_type': deal.get('metal_type', 'silver')
         }
+        
+        # Add metal-specific information
+        if deal.get('metal_type') == 'gold':
+            base_data.update({
+                'item_name': deal.get('gold_info', {}).get('purity_str', 'Unknown'),
+                'metal_weight_oz': deal.get('gold_info', {}).get('gold_weight_oz', 0),
+                'metal_purity': deal.get('gold_info', {}).get('purity_decimal', 0),
+                'confidence': deal.get('gold_info', {}).get('confidence', 0)
+            })
+        else:
+            base_data.update({
+                'coin_name': deal.get('asw_info', {}).get('coin_name', 'Unknown'),
+                'metal_weight_oz': deal.get('asw_info', {}).get('asw', 0),
+                'metal_purity': deal.get('asw_info', {}).get('purity', 0.9),
+                'confidence': deal.get('asw_info', {}).get('confidence', 0)
+            })
+        
+        return base_data
     
     def get_all_formatted_deals(self) -> List[Dict]:
         """

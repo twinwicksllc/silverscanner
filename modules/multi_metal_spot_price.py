@@ -149,48 +149,88 @@ class MultiMetalSpotPrice:
             
             data = response.json()
             
-            result = {}
-            for metal, coin_id in self.metal_mapping.items():
+            # Process each metal
+            results = {}
+            for metal_name, coin_id in self.metal_mapping.items():
                 if coin_id in data and 'usd' in data[coin_id]:
                     price = data[coin_id]['usd']
-                    
-                    if self._is_price_valid(metal, price):
-                        result[metal] = {
+                    if self._is_price_valid(metal_name, price):
+                        results[metal_name] = {
                             'spot_price': price,
                             'source': 'CoinGecko',
                             'timestamp': datetime.now().isoformat(),
                             'verified': True
                         }
-                    else:
-                        result[metal] = {
-                            'spot_price': None,
-                            'source': 'None',
-                            'timestamp': datetime.now().isoformat(),
-                            'verified': False
-                        }
                 else:
-                    result[metal] = {
+                    results[metal_name] = {
                         'spot_price': None,
                         'source': 'None',
                         'timestamp': datetime.now().isoformat(),
                         'verified': False
                     }
             
-            # Cache the result
-            self._cache[cache_key] = (result, datetime.now())
-            return result
+            # Cache the results
+            self._cache[cache_key] = (results, datetime.now())
+            return results
             
         except Exception as e:
             logger.error(f"Error fetching all spot prices: {e}")
+            return {metal: {'spot_price': None, 'source': 'None', 'verified': False} 
+                    for metal in self.metal_mapping.keys()}
+    
+    def get_silver_price_info(self) -> Dict:
+        """
+        Get silver spot price with threshold calculation
+        Returns dict with spot_price, threshold, source, timestamp
+        """
+        price_info = self.get_spot_price('silver')
+        spot_price = price_info.get('spot_price')
+        
+        if spot_price:
+            # Silver threshold: 83% of spot price (17% discount)
+            threshold = spot_price * 0.83
             return {
-                metal: {
-                    'spot_price': None,
-                    'source': 'None',
-                    'timestamp': datetime.now().isoformat(),
-                    'verified': False
-                }
-                for metal in self.metal_mapping.keys()
+                'spot_price': spot_price,
+                'threshold': threshold,
+                'source': price_info.get('source'),
+                'timestamp': price_info.get('timestamp'),
+                'verified': price_info.get('verified', False)
             }
+        
+        return {
+            'spot_price': None,
+            'threshold': None,
+            'source': 'None',
+            'timestamp': datetime.now().isoformat(),
+            'verified': False
+        }
+    
+    def get_gold_price_info(self) -> Dict:
+        """
+        Get gold spot price with threshold calculation
+        Returns dict with spot_price, threshold, source, timestamp
+        """
+        price_info = self.get_spot_price('gold')
+        spot_price = price_info.get('spot_price')
+        
+        if spot_price:
+            # Gold threshold: 85% of spot price (15% discount)
+            threshold = spot_price * 0.85
+            return {
+                'spot_price': spot_price,
+                'threshold': threshold,
+                'source': price_info.get('source'),
+                'timestamp': price_info.get('timestamp'),
+                'verified': price_info.get('verified', False)
+            }
+        
+        return {
+            'spot_price': None,
+            'threshold': None,
+            'source': 'None',
+            'timestamp': datetime.now().isoformat(),
+            'verified': False
+        }
     
     def _is_price_valid(self, metal_type: str, price: float) -> bool:
         """
