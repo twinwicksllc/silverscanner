@@ -173,26 +173,40 @@ def index():
 
 @app.route('/api/price')
 def api_price():
-    """API endpoint for current spot price - returns database record only"""
+    """API endpoint for current spot price - supports metal_type parameter
+    
+    Query parameters:
+        metal_type: 'silver' (default) or 'gold'
+    """
     try:
-        # Get most recent price from database (no live fetch)
-        latest_price = db_manager.get_latest_price()
+        metal_type = request.args.get('metal_type', 'silver')
         
-        if latest_price:
-            price_info = {
-                'price': latest_price.price,
-                'source': latest_price.source,
-                'timestamp': latest_price.timestamp.isoformat() if latest_price.timestamp else None,
-                'verified': True
-            }
+        # Validate metal_type
+        if metal_type not in ['silver', 'gold']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver" or "gold"'
+            }), 400
+        
+        # Get price info based on metal type
+        from modules.multi_metal_spot_price import MultiMetalSpotPrice
+        multi_spot = MultiMetalSpotPrice()
+        
+        if metal_type == 'gold':
+            price_info = multi_spot.get_gold_price_info()
         else:
-            # Fallback to cached price if no database record
-            price_info = spot_price.get_price_info()
-            price_info['verified'] = False
+            price_info = multi_spot.get_silver_price_info()
         
         return jsonify({
             'success': True,
-            'data': price_info
+            'data': {
+                'spot_price': price_info.get('spot_price'),
+                'threshold': price_info.get('threshold'),
+                'source': price_info.get('source'),
+                'timestamp': price_info.get('timestamp'),
+                'verified': price_info.get('verified', False),
+                'metal_type': metal_type
+            }
         })
     except Exception as e:
         logger.error(f"Error getting price info: {e}")

@@ -11,7 +11,8 @@ const AppState = {
     deals: [],
     scanInterval: null,
     sortBy: 'discount',  // default sort: discount (highest first)
-    sortOrder: 'desc'    // desc = descending, asc = ascending
+    sortOrder: 'desc',   // desc = descending, asc = ascending
+    currentMetal: 'silver'  // current metal filter
 };
 
 // Utility functions
@@ -64,10 +65,12 @@ function timeSince(isoString) {
 }
 
 // API Functions
-async function fetchPriceInfo() {
-    console.log('fetchPriceInfo() called');
+async function fetchPriceInfo(metalType = null) {
+    console.log('fetchPriceInfo() called with metalType:', metalType);
+    const metal = metalType || AppState.currentMetal || 'silver';
+    
     try {
-        const response = await fetch('/api/price');
+        const response = await fetch(`/api/price?metal_type=${metal}`);
         console.log('fetchPriceInfo response status:', response.status);
         const data = await response.json();
         console.log('fetchPriceInfo data:', data);
@@ -96,10 +99,13 @@ async function fetchScanStatus() {
     }
 }
 
-async function fetchDeals() {
-    console.log('fetchDeals() called');
+async function fetchDeals(metalType = null) {
+    console.log('fetchDeals() called with metalType:', metalType);
+    
+    // Use provided metalType or current filter
+    const metal = metalType || AppState.currentMetal || 'silver';
     try {
-        const response = await fetch('/api/deals?limit=50');
+        const response = await fetch(`/api/deals?limit=50&amp;metal_type=${metal}`);
         console.log('fetchDeals response status:', response.status);
         const data = await response.json();
         console.log('fetchDeals data:', data);
@@ -126,11 +132,13 @@ async function startScan() {
         updateScanButton();
         
         console.log('Sending POST request to /api/scan');
+        const metalType = AppState.currentMetal || 'silver';
         const response = await fetch('/api/scan', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ metal_type: metalType })
         });
         
         console.log('Response status:', response.status);
@@ -607,3 +615,53 @@ document.addEventListener('DOMContentLoaded', function() {
         defaultSortBtn.classList.add('active', 'desc');
     }
 });
+
+// Filter by metal type
+function filterByMetal() {
+    const metalFilter = document.getElementById('metal-type-filter');
+    const selectedMetal = metalFilter.value;
+    
+    console.log('Filtering by metal:', selectedMetal);
+    AppState.currentMetal = selectedMetal;
+    
+    // Update UI labels
+    updateMetalLabels(selectedMetal);
+    
+    // Fetch deals for selected metal
+    fetchDeals(selectedMetal);
+    
+    // Update price info for selected metal
+    fetchPriceInfo(selectedMetal);
+}
+
+// Update metal-specific labels in UI
+function updateMetalLabels(metalType) {
+    const metalName = metalType === 'all' ? 'All Metals' : 
+                      metalType.charAt(0).toUpperCase() + metalType.slice(1);
+    
+    // Update various labels
+    const elements = {
+        'metal-name': metalName,
+        'chart-metal-name': metalName,
+        'deals-metal-name': metalName
+    };
+    
+    Object.entries(elements).forEach(([id, text]) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.textContent = text;
+        }
+    });
+    
+    // Update threshold subtext based on metal
+    const thresholdSubtext = document.getElementById('threshold-subtext');
+    if (thresholdSubtext) {
+        if (metalType === 'gold') {
+            thresholdSubtext.textContent = '85% of spot (15% discount)';
+        } else if (metalType === 'silver') {
+            thresholdSubtext.textContent = '83% of spot (17% discount)';
+        } else {
+            thresholdSubtext.textContent = 'Max price per troy oz to qualify';
+        }
+    }
+}

@@ -27,18 +27,28 @@
     <main class="container dashboard">
         <div class="dashboard-header">
             <div class="dashboard-title">
-                <h1>Silver Deal Dashboard</h1>
-                <p>Monitor eBay for undervalued silver coins and bullion</p>
+                <h1>Precious Metals Deal Dashboard</h1>
+                <p>Monitor eBay for undervalued silver and gold deals</p>
             </div>
-            <button id="scan-button" class="btn btn-primary">
-                🔍 Start Scan
-            </button>
+            <div class="header-controls">
+                <div class="metal-filter">
+                    <label for="metal-type-filter">Metal Type:</label>
+                    <select id="metal-type-filter" onchange="filterByMetal()">
+                        <option value="all">All Metals</option>
+                        <option value="silver" selected>Silver</option>
+                        <option value="gold">Gold</option>
+                    </select>
+                </div>
+                <button id="scan-button" class="btn btn-primary">
+                    🔍 Start Scan
+                </button>
+            </div>
         </div>
 
         <!-- Price Information Cards -->
         <div class="price-cards">
             <div class="price-card highlight">
-                <h3>Current Spot Price</h3>
+                <h3><span id="metal-name">Silver</span> Spot Price</h3>
                 <div class="value dollar" id="spot-price">
                     {% if price_info and price_info.spot_price %}
                         ${{ "%.2f"|format(price_info.spot_price) }}
@@ -56,7 +66,7 @@
             </div>
 
             <div class="price-card">
-                <h3>Deal Threshold ({{ config.DEAL_THRESHOLD_PERCENTAGE }}%)</h3>
+                <h3>Deal Threshold</h3>
                 <div class="value dollar" id="threshold-price">
                     {% if price_info and price_info.threshold %}
                         ${{ "%.2f"|format(price_info.threshold) }}
@@ -64,7 +74,7 @@
                         Loading...
                     {% endif %}
                 </div>
-                <div class="subtext">Max price per troy oz to qualify</div>
+                <div class="subtext" id="threshold-subtext">Max price per troy oz to qualify</div>
             </div>
 
             <div class="price-card">
@@ -101,7 +111,7 @@
         <!-- Price History Chart -->
         <div class="chart-section">
             <div class="chart-header">
-                <h2>📈 Silver Spot Price History (30 Days)</h2>
+                <h2>📈 <span id="chart-metal-name">Silver</span> Spot Price History (30 Days)</h2>
                 <div class="chart-controls">
                     <select id="history-days" onchange="loadPriceHistory()">
                         <option value="7">7 Days</option>
@@ -160,7 +170,7 @@
         <!-- Deals Table -->
         <div id="deals-section" class="deals-section" style="{% if not recent_deals %}display: none;{% endif %}">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                <h2>Recent Silver Deals</h2>
+                <h2>Recent <span id="deals-metal-name">Silver</span> Deals</h2>
                 <button class="btn btn-secondary" onclick="fetchDeals()">
                     🔄 Refresh
                 </button>
@@ -171,7 +181,7 @@
                     <tr>
                         <th style="width: 30%;">Item</th>
                         <th style="width: 15%;">Price</th>
-                        <th style="width: 10%;">Silver Weight</th>
+                        <th style="width: 10%;"><span id="weight-header">Metal Weight</span></th>
                         <th style="width: 15%;">
                             Cost per Ounce
                             <button class="sort-btn" data-sort="price_per_oz" title="Sort by Price/oz">
@@ -192,13 +202,19 @@
                 </thead>
                 <tbody id="deals-table-body">
                     {% for deal in recent_deals %}
-                    <tr>
+                    <tr data-metal-type="{{ deal.metal_type|default('silver') }}">
                         <td>
                             <a href="{{ deal.item_url }}" target="_blank" class="deal-link">
                                 {{ deal.title[:60] }}{% if deal.title|length > 60 %}...{% endif %}
                             </a>
                             <br>
-                            <small class="coin-type">{{ deal.coin_name }}</small>
+                            <small class="coin-type">
+                                {% if deal.metal_type == 'gold' %}
+                                    🥇 {{ deal.coin_name|default('Gold') }}
+                                {% else %}
+                                    🥈 {{ deal.coin_name|default('Silver') }}
+                                {% endif %}
+                            </small>
                         </td>
                         <td>
                             <strong>${{ "%.2f"|format(deal.total_cost) }}</strong>
@@ -206,7 +222,7 @@
                             <small>Item: ${{ "%.2f"|format(deal.price) }} + Ship: ${{ "%.2f"|format(deal.shipping_cost) }}</small>
                         </td>
                         <td>
-                            <strong>{{ "%.2f"|format(deal.silver_weight_oz) }} oz</strong>
+                            <strong>{{ "%.2f"|format(deal.metal_weight_oz|default(deal.silver_weight_oz)) }} oz</strong>
                         </td>
                         <td>
                             <strong>${{ "%.2f"|format(deal.cost_per_oz) }}/oz</strong>

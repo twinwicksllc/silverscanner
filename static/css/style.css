@@ -536,3 +536,64 @@ footer p {
 .deals-table thead th {
     white-space: nowrap;
 }
+
+/* Header Controls */
+.header-controls {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.metal-filter {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--white);
+    padding: 8px 15px;
+    border-radius: 6px;
+    border: 1px solid var(--light-gray);
+}
+
+.metal-filter label {
+    font-weight: 600;
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+.metal-filter select {
+    padding: 6px 12px;
+    border: 1px solid var(--light-gray);
+    border-radius: 4px;
+    background: var(--white);
+    color: var(--text-color);
+    font-size: 0.9rem;
+    cursor: pointer;
+    min-width: 120px;
+}
+
+.metal-filter select:hover {
+    border-color: var(--primary-color);
+}
+
+.metal-filter select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+}
+
+/* Metal type badges in deals table */
+tr[data-metal-type="gold"] {
+    background: rgba(255, 215, 0, 0.05);
+}
+
+tr[data-metal-type="gold"]:hover {
+    background: rgba(255, 215, 0, 0.1);
+}
+
+tr[data-metal-type="silver"] {
+    background: rgba(192, 192, 192, 0.03);
+}
+
+tr[data-metal-type="silver"]:hover {
+    background: rgba(192, 192, 192, 0.08);
+}
