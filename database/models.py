@@ -32,8 +32,8 @@ class Deal(Base):
     metal_purity = Column(Float, default=1.0)  # 1.0 = pure, 0.9 = 90%, etc.
     coin_type = Column(String(100))
     coin_name = Column(String(200))
-    silver_weight_oz = Column(Float, nullable=False)  # Keep for backward compatibility
-    metal_weight_oz = Column(Float, nullable=False)  # New unified column
+    # Note: silver_weight_oz was renamed to metal_weight_oz in production migration
+    metal_weight_oz = Column(Float, nullable=False)  # Unified column for all metals
     quantity = Column(Integer, default=1)
     face_value = Column(Float, default=0.0)
     
@@ -230,8 +230,7 @@ class DatabaseManager:
                 existing.metal_purity = metal_purity
                 existing.coin_type = metal_info.get('coin_type')
                 existing.coin_name = coin_name
-                existing.silver_weight_oz = metal_weight_oz  # Backward compatibility
-                existing.metal_weight_oz = metal_weight_oz  # New unified column
+                existing.metal_weight_oz = metal_weight_oz  # Unified column
                 existing.quantity = metal_info.get('quantity', 1)
                 existing.face_value = metal_info.get('face_value', 0.0)
                 existing.spot_price = deal_data.get('metrics', {}).get('spot_price')
@@ -269,8 +268,7 @@ class DatabaseManager:
                     metal_purity=metal_purity,
                     coin_type=metal_info.get('coin_type'),
                     coin_name=coin_name,
-                    silver_weight_oz=metal_weight_oz,  # Backward compatibility
-                    metal_weight_oz=metal_weight_oz,  # New unified column
+                    metal_weight_oz=metal_weight_oz,  # Unified column
                     quantity=metal_info.get('quantity', 1),
                     face_value=metal_info.get('face_value', 0.0),
                     spot_price=deal_data.get('metrics', {}).get('spot_price'),
@@ -428,8 +426,8 @@ class DatabaseManager:
             'metal_type': deal.metal_type if hasattr(deal, 'metal_type') else 'silver',
             'metal_purity': deal.metal_purity if hasattr(deal, 'metal_purity') else 1.0,
             'coin_name': deal.coin_name,
-            'silver_weight_oz': deal.silver_weight_oz,
-            'metal_weight_oz': deal.metal_weight_oz if hasattr(deal, 'metal_weight_oz') else deal.silver_weight_oz,
+            'metal_weight_oz': deal.metal_weight_oz,
+            'silver_weight_oz': deal.metal_weight_oz,  # For backward compatibility in API responses
             'spot_price': deal.spot_price,
             'cost_per_oz': deal.cost_per_oz,
             'discount_percent': deal.discount_percent,

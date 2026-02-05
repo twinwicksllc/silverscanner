@@ -181,6 +181,13 @@ def api_price():
     try:
         metal_type = request.args.get('metal_type', 'silver')
         
+        # If "all" is requested, redirect to /api/spot_prices
+        if metal_type == 'all':
+            return jsonify({
+                'success': False,
+                'error': 'Use /api/spot_prices to get all metal prices at once'
+            }), 400
+        
         # Validate metal_type
         if metal_type not in ['silver', 'gold']:
             return jsonify({
