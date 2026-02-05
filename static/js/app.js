@@ -665,3 +665,24 @@ function updateMetalLabels(metalType) {
         }
     }
 }
+
+// Fetch all spot prices at once (optional optimization)
+async function fetchAllSpotPrices() {
+    console.log('fetchAllSpotPrices() called');
+    
+    try {
+        const response = await fetch('/api/spot_prices');
+        console.log('fetchAllSpotPrices response status:', response.status);
+        const data = await response.json();
+        console.log('fetchAllSpotPrices data:', data);
+        
+        if (data.success) {
+            // Store all prices in AppState for quick access
+            AppState.allPrices = data.data;
+            return data.data;
+        }
+    } catch (error) {
+        console.error('Error fetching all spot prices:', error);
+        return null;
+    }
+}

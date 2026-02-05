@@ -215,6 +215,68 @@ def api_price():
             'error': str(e)
         }), 500
 
+@app.route('/api/spot_prices')
+def api_spot_prices():
+    """API endpoint to get spot prices for all supported metals at once
+    
+    Returns prices for silver, gold, platinum, and palladium in a single call
+    """
+    try:
+        from modules.multi_metal_spot_price import MultiMetalSpotPrice
+        multi_spot = MultiMetalSpotPrice()
+        
+        # Get all spot prices
+        all_prices = multi_spot.get_all_spot_prices()
+        
+        # Format response with thresholds
+        result = {}
+        
+        for metal, price_data in all_prices.items():
+            spot_price = price_data.get('spot_price')
+            
+            if spot_price:
+                # Calculate threshold based on metal type
+                if metal == 'gold':
+                    threshold = spot_price * 0.85  # 15% discount
+                elif metal == 'silver':
+                    threshold = spot_price * 0.83  # 17% discount
+                elif metal == 'platinum':
+                    threshold = spot_price * 0.90  # 10% discount
+                elif metal == 'palladium':
+                    threshold = spot_price * 0.90  # 10% discount
+                else:
+                    threshold = spot_price * 0.85  # Default 15% discount
+                
+                result[metal] = {
+                    'spot_price': spot_price,
+                    'threshold': threshold,
+                    'source': price_data.get('source'),
+                    'timestamp': price_data.get('timestamp'),
+                    'verified': price_data.get('verified', False)
+                }
+            else:
+                result[metal] = {
+                    'spot_price': None,
+                    'threshold': None,
+                    'source': 'None',
+                    'timestamp': price_data.get('timestamp'),
+                    'verified': False,
+                    'error': 'Price not available'
+                }
+        
+        return jsonify({
+            'success': True,
+            'data': result,
+            'metals': list(result.keys())
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting spot prices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 def run_background_scan(metal_type: str = 'silver'):
     """Background thread function to perform scan
     
