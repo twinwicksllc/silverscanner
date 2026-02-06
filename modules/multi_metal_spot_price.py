@@ -18,6 +18,8 @@ class MultiMetalSpotPrice:
     """
     
     def __init__(self):
+        from database.models import DatabaseManager
+        
         self.coingecko_url = "https://api.coingecko.com/api/v3/simple/price"
         
         # Mapping of our metal names to CoinGecko IDs
@@ -45,6 +47,12 @@ class MultiMetalSpotPrice:
         self._cache_duration = timedelta(minutes=5)
         self._last_request_time = 0
         self._min_request_interval = 2
+        
+        # Database manager for saving price history
+        self.db_manager = DatabaseManager()
+        
+        # Counter to save price history every other fetch
+        self._fetch_count = {'silver': 0, 'gold': 0, 'platinum': 0, 'palladium': 0}
     
     def _scrape_gold_price_kitco(self) -> Optional[float]:
         """Scrape gold price from Kitco as fallback"""
@@ -383,6 +391,16 @@ class MultiMetalSpotPrice:
         if spot_price:
             # Silver threshold: 83% of spot price (17% discount)
             threshold = spot_price * 0.83
+            
+            # Save price history every other fetch
+            self._fetch_count['silver'] += 1
+            if self._fetch_count['silver'] % 2 == 0:
+                self.db_manager.save_price_history(
+                    price=spot_price,
+                    source=price_info.get('source'),
+                    metal_type='silver'
+                )
+            
             return {
                 'spot_price': spot_price,
                 'threshold': threshold,
@@ -411,6 +429,16 @@ class MultiMetalSpotPrice:
         if spot_price:
             # Gold threshold: 85% of spot price (15% discount)
             threshold = spot_price * 0.85
+            
+            # Save price history every other fetch
+            self._fetch_count['gold'] += 1
+            if self._fetch_count['gold'] % 2 == 0:
+                self.db_manager.save_price_history(
+                    price=spot_price,
+                    source=price_info.get('source'),
+                    metal_type='gold'
+                )
+            
             return {
                 'spot_price': spot_price,
                 'threshold': threshold,

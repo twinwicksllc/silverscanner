@@ -1018,63 +1018,58 @@ def migrate_price_history_metal_type():
         }), 401
     
     try:
-        import sys
-        import os
-        from sqlalchemy import create_engine, text, inspect
+        from database.models import DatabaseManager
         
-        database_url = os.getenv('DATABASE_URL')
+        db = DatabaseManager()
+        session = db.get_session()
         
-        if not database_url:
-            return jsonify({
-                'success': False,
-                'error': 'DATABASE_URL not configured'
-            }), 500
+        logger.info("Starting price_history metal_type migration using DatabaseManager")
         
-        engine = create_engine(database_url)
-        is_postgres = 'postgresql' in database_url
+        # Step 1: Add metal_type column
+        try:
+            session.execute("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'")
+            session.commit()
+            logger.info("Added metal_type column to price_history")
+        except Exception as e:
+            session.rollback()
+            if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                raise
+            logger.info("metal_type column already exists")
         
-        logger.info(f"Starting price_history metal_type migration (database type: {'PostgreSQL' if is_postgres else 'SQLite'})")
+        # Step 2: Create index on metal_type
+        try:
+            session.execute("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)")
+            session.commit()
+            logger.info("Created index on price_history.metal_type")
+        except Exception as e:
+            session.rollback()
+            if 'already exists' in str(e).lower():
+                logger.info("Index already exists")
+            else:
+                raise
         
-        with engine.connect() as conn:
-            # Step 1: Add metal_type column
-            try:
-                conn.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
-                conn.commit()
-                logger.info("Added metal_type column to price_history")
-            except Exception as e:
-                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
-                    raise
-            
-            # Step 2: Create index on metal_type
-            try:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)"))
-                conn.commit()
-                logger.info("Created index on price_history.metal_type")
-            except Exception as e:
-                if 'already exists' in str(e).lower():
-                    pass
-                else:
-                    raise
-            
-            # Step 3: Update existing records to have metal_type = 'silver'
-            try:
-                conn.execute(text("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''"))
-                conn.commit()
-                logger.info("Updated existing price_history records")
-            except Exception as e:
-                logger.warning(f"Could not update existing records: {e}")
-            
-            # Step 4: Create composite index for (metal_type, timestamp)
-            try:
-                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)"))
-                conn.commit()
-                logger.info("Created composite index on price_history(metal_type, timestamp)")
-            except Exception as e:
-                if 'already exists' in str(e).lower():
-                    pass
-                else:
-                    raise
+        # Step 3: Update existing records to have metal_type = 'silver'
+        try:
+            session.execute("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''")
+            session.commit()
+            logger.info("Updated existing price_history records")
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Could not update existing records: {e}")
         
+        # Step 4: Create composite index for (metal_type, timestamp)
+        try:
+            session.execute("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)")
+            session.commit()
+            logger.info("Created composite index on price_history(metal_type, timestamp)")
+        except Exception as e:
+            session.rollback()
+            if 'already exists' in str(e).lower():
+                logger.info("Composite index already exists")
+            else:
+                raise
+        
+        session.close()
         logger.info("Price history metal_type migration completed successfully")
         
         return jsonify({
