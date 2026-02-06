@@ -6,6 +6,7 @@ Intelligent pattern-based recognition for gold items
 import re
 import logging
 from typing import Dict, Optional, Tuple
+from config import Config
 
 logger = logging.getLogger(__name__)
 
