@@ -135,8 +135,8 @@ def index():
                 'verified': True
             }
         
-        # Get recent deals from database
-        recent_deals = db_manager.get_recent_deals(limit=20)
+        # Don't load deals server-side - let JavaScript fetch them based on selected filter
+        recent_deals = []
         
         # Get scan state from database
         last_scan_record = db_manager.get_last_scan()
