@@ -1019,6 +1019,7 @@ def migrate_price_history_metal_type():
     
     try:
         from database.models import DatabaseManager
+        from sqlalchemy import text
         
         db = DatabaseManager()
         session = db.get_session()
@@ -1027,7 +1028,7 @@ def migrate_price_history_metal_type():
         
         # Step 1: Add metal_type column
         try:
-            session.execute("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'")
+            session.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
             session.commit()
             logger.info("Added metal_type column to price_history")
         except Exception as e:
@@ -1038,7 +1039,7 @@ def migrate_price_history_metal_type():
         
         # Step 2: Create index on metal_type
         try:
-            session.execute("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)")
+            session.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)"))
             session.commit()
             logger.info("Created index on price_history.metal_type")
         except Exception as e:
@@ -1050,7 +1051,7 @@ def migrate_price_history_metal_type():
         
         # Step 3: Update existing records to have metal_type = 'silver'
         try:
-            session.execute("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''")
+            session.execute(text("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''"))
             session.commit()
             logger.info("Updated existing price_history records")
         except Exception as e:
@@ -1059,7 +1060,7 @@ def migrate_price_history_metal_type():
         
         # Step 4: Create composite index for (metal_type, timestamp)
         try:
-            session.execute("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)")
+            session.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)"))
             session.commit()
             logger.info("Created composite index on price_history(metal_type, timestamp)")
         except Exception as e:

@@ -10,6 +10,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from database.models import DatabaseManager
+from sqlalchemy import text
 
 def check_migration():
     """Check migration status"""
@@ -24,7 +25,7 @@ def check_migration():
         
         # Check price_history table schema
         print("\n[price_history table schema]")
-        result = session.execute("PRAGMA table_info(price_history)")
+        result = session.execute(text("PRAGMA table_info(price_history)"))
         columns = result.fetchall()
         
         has_metal_type = False
@@ -35,7 +36,7 @@ def check_migration():
         
         # Check indexes
         print("\n[Indexes on price_history]")
-        result = session.execute("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='price_history'")
+        result = session.execute(text("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='price_history'"))
         indexes = result.fetchall()
         for idx in indexes:
             print(f"  • {idx[0]}")
@@ -43,7 +44,7 @@ def check_migration():
         # Check data distribution
         print("\n[Price history data distribution]")
         if has_metal_type:
-            result = session.execute("SELECT metal_type, COUNT(*) as count FROM price_history GROUP BY metal_type")
+            result = session.execute(text("SELECT metal_type, COUNT(*) as count FROM price_history GROUP BY metal_type"))
             rows = result.fetchall()
             if rows:
                 for row in rows:
@@ -51,7 +52,7 @@ def check_migration():
             else:
                 print("  No price history records found")
         else:
-            result = session.execute("SELECT COUNT(*) as count FROM price_history")
+            result = session.execute(text("SELECT COUNT(*) as count FROM price_history"))
             count = result.fetchone()[0]
             print(f"  Total records: {count} (metal_type column missing)")
         

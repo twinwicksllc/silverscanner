@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from database.models import DatabaseManager
+from sqlalchemy import text
 
 def migrate_price_history():
     """Add metal_type column to price_history table"""
@@ -25,7 +26,7 @@ def migrate_price_history():
         
         print("\n[Step 1] Adding metal_type column to price_history...")
         try:
-            session.execute("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'")
+            session.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
             session.commit()
             print("✓ Successfully added metal_type column")
         except Exception as e:
@@ -38,7 +39,7 @@ def migrate_price_history():
         
         print("\n[Step 2] Creating index on metal_type...")
         try:
-            session.execute("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)")
+            session.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)"))
             session.commit()
             print("✓ Successfully created index on metal_type")
         except Exception as e:
@@ -51,7 +52,7 @@ def migrate_price_history():
         
         print("\n[Step 3] Updating existing records...")
         try:
-            result = session.execute("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''")
+            result = session.execute(text("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''"))
             session.commit()
             print(f"✓ Updated {result.rowcount} existing records")
         except Exception as e:
@@ -61,7 +62,7 @@ def migrate_price_history():
         
         print("\n[Step 4] Creating composite index (metal_type, timestamp)...")
         try:
-            session.execute("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)")
+            session.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)"))
             session.commit()
             print("✓ Successfully created composite index")
         except Exception as e:
