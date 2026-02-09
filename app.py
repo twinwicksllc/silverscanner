@@ -383,11 +383,10 @@ def api_scan():
         # Get metal type from request (default to silver)
         metal_type = request.json.get('metal_type', 'silver') if request.is_json else 'silver'
         
-        if metal_type not in ['silver', 'gold']:
-            return jsonify({
-                'success': False,
-                'error': 'Invalid metal_type. Must be "silver" or "gold"'
-            }), 400
+        # Handle null, None, or invalid values
+        if not metal_type or metal_type == 'null' or metal_type not in ['silver', 'gold']:
+            metal_type = 'silver'  # Default to silver for any invalid value
+            logger.warning(f"Invalid metal_type received, defaulting to silver")
         
         logger.info(f"Manual {metal_type} scan triggered via API - starting background thread")
         

@@ -67,7 +67,8 @@ function timeSince(isoString) {
 // API Functions
 async function fetchPriceInfo(metalType = null) {
     console.log('fetchPriceInfo() called with metalType:', metalType);
-    const metal = metalType || AppState.currentMetal || 'silver';
+    // Ensure metal is never null or 'null' string
+    const metal = (metalType &amp;&amp; metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
     
     try {
         const response = await fetch(`/api/price?metal_type=${metal}`);
@@ -120,8 +121,8 @@ async function fetchScanStatus() {
 async function fetchDeals(metalType = null) {
     console.log('fetchDeals() called with metalType:', metalType);
     
-    // Use provided metalType or current filter
-    const metal = metalType || AppState.currentMetal || 'silver';
+    // Use provided metalType or current filter, ensure it's never null
+    const metal = (metalType &amp;&amp; metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
     
     // Clear deals immediately to show loading/empty state
     AppState.deals = [];
@@ -156,7 +157,9 @@ async function startScan() {
         updateScanButton();
         
         console.log('Sending POST request to /api/scan');
-        const metalType = AppState.currentMetal || 'silver';
+        // Ensure metalType is always a valid string, never null or undefined
+        const metalType = AppState.currentMetal &amp;&amp; AppState.currentMetal !== 'null' ? AppState.currentMetal : 'silver';
+        console.log('Scan metal type:', metalType);
         const response = await fetch('/api/scan', {
             method: 'POST',
             headers: {
