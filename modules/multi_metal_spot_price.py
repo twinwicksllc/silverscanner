@@ -411,6 +411,7 @@ class MultiMetalSpotPrice:
             return {
                 'spot_price': spot_price,
                 'threshold': threshold,
+                'threshold_percentage': price_info.get('threshold_percentage', Config.DEAL_THRESHOLD_PERCENTAGE),
                 'source': price_info.get('source'),
                 'timestamp': price_info.get('timestamp'),
                 'verified': price_info.get('verified', False)
@@ -419,6 +420,7 @@ class MultiMetalSpotPrice:
         return {
             'spot_price': None,
             'threshold': None,
+            'threshold_percentage': Config.DEAL_THRESHOLD_PERCENTAGE,
             'source': 'None',
             'timestamp': datetime.now().isoformat(),
             'verified': False
@@ -454,6 +456,7 @@ class MultiMetalSpotPrice:
             return {
                 'spot_price': spot_price,
                 'threshold': threshold,
+                'threshold_percentage': price_info.get('threshold_percentage', Config.METAL_THRESHOLDS.get('gold', 92.0)),
                 'source': price_info.get('source'),
                 'timestamp': price_info.get('timestamp'),
                 'verified': price_info.get('verified', False)
@@ -462,6 +465,7 @@ class MultiMetalSpotPrice:
         return {
             'spot_price': None,
             'threshold': None,
+            'threshold_percentage': Config.METAL_THRESHOLDS.get('gold', 92.0),
             'source': 'None',
             'timestamp': datetime.now().isoformat(),
             'verified': False
