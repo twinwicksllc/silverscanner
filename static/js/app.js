@@ -68,7 +68,7 @@ function timeSince(isoString) {
 async function fetchPriceInfo(metalType = null) {
     console.log('fetchPriceInfo() called with metalType:', metalType);
     // Ensure metal is never null or 'null' string
-    const metal = (metalType &amp;&amp; metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
+    const metal = (metalType && metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
     
     try {
         const response = await fetch(`/api/price?metal_type=${metal}`);
@@ -122,14 +122,14 @@ async function fetchDeals(metalType = null) {
     console.log('fetchDeals() called with metalType:', metalType);
     
     // Use provided metalType or current filter, ensure it's never null
-    const metal = (metalType &amp;&amp; metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
+    const metal = (metalType && metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
     
     // Clear deals immediately to show loading/empty state
     AppState.deals = [];
     updateDealsTable();
     
     try {
-        const response = await fetch(`/api/deals?limit=50&amp;metal_type=${metal}`);
+        const response = await fetch(`/api/deals?limit=50&metal_type=${metal}`);
         console.log('fetchDeals response status:', response.status);
         const data = await response.json();
         console.log('fetchDeals data:', data);
@@ -158,7 +158,7 @@ async function startScan() {
         
         console.log('Sending POST request to /api/scan');
         // Ensure metalType is always a valid string, never null or undefined
-        const metalType = AppState.currentMetal &amp;&amp; AppState.currentMetal !== 'null' ? AppState.currentMetal : 'silver';
+        const metalType = AppState.currentMetal && AppState.currentMetal !== 'null' ? AppState.currentMetal : 'silver';
         console.log('Scan metal type:', metalType);
         const response = await fetch('/api/scan', {
             method: 'POST',
