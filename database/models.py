@@ -27,10 +27,13 @@ class Deal(Base):
     shipping_cost = Column(Float, nullable=False)
     total_cost = Column(Float, nullable=False)
     
-    # Silver content info
+    # Metal content info
+    metal_type = Column(String(20), default='silver', index=True)  # silver, gold, platinum, palladium
+    metal_purity = Column(Float, default=1.0)  # 1.0 = pure, 0.9 = 90%, etc.
     coin_type = Column(String(100))
     coin_name = Column(String(200))
-    silver_weight_oz = Column(Float, nullable=False)
+    # Note: silver_weight_oz was renamed to metal_weight_oz in production migration
+    metal_weight_oz = Column(Float, nullable=False)  # Unified column for all metals
     quantity = Column(Integer, default=1)
     face_value = Column(Float, default=0.0)
     
@@ -50,6 +53,8 @@ class Deal(Base):
     item_url = Column(String(500), nullable=False)
     image_url = Column(String(500))
     time_listed = Column(DateTime)  # When the listing was created on eBay
+    item_end_date = Column(DateTime)  # When the listing ends/expires
+    last_seen_in_scan = Column(DateTime)  # Last time this deal appeared in a scan
     
     # Metadata
     scan_id = Column(String(50))
@@ -122,17 +127,18 @@ class AlertHistory(Base):
         return f"<AlertHistory {self.item_id} {self.alert_type}>"
 
 class PriceHistory(Base):
-    """Model for storing silver spot price history"""
+    """Model for storing spot price history for all metals"""
     __tablename__ = 'price_history'
     
     id = Column(Integer, primary_key=True)
+    metal_type = Column(String(20), default='silver', index=True)  # silver, gold, platinum, palladium
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
     price = Column(Float, nullable=False)
     source = Column(String(200))  # URL of the source
     created_at = Column(DateTime, default=datetime.utcnow)
     
     def __repr__(self):
-        return f"<PriceHistory ${self.price:.2f} at {self.timestamp}>"
+        return f"<PriceHistory {self.metal_type} ${self.price:.2f} at {self.timestamp}>"
 
 
 class Settings(Base):
@@ -193,6 +199,22 @@ class DatabaseManager:
             # Check if deal already exists by item_id
             existing = session.query(Deal).filter_by(item_id=deal_data['item_id']).first()
             
+            # Extract metal-specific information
+            metal_type = deal_data.get('metal_type', 'silver')
+            
+            if metal_type == 'gold':
+                metal_info = deal_data.get('gold_info', {})
+                metal_weight_oz = metal_info.get('gold_weight_oz', 0)
+                metal_purity = metal_info.get('purity_decimal', 1.0)
+                confidence = metal_info.get('confidence', 0)
+                coin_name = metal_info.get('purity_str', 'Gold')
+            else:
+                metal_info = deal_data.get('asw_info', {})
+                metal_weight_oz = metal_info.get('asw', 0)
+                metal_purity = metal_info.get('purity', 0.9)
+                confidence = metal_info.get('confidence', 0)
+                coin_name = metal_info.get('coin_name', 'Silver')
+            
             if existing:
                 # Preserve is_hidden flag during update
                 was_hidden = existing.is_hidden
@@ -205,11 +227,13 @@ class DatabaseManager:
                 existing.price = deal_data['price']
                 existing.shipping_cost = deal_data['shipping_cost']
                 existing.total_cost = deal_data['total_cost']
-                existing.coin_type = deal_data.get('asw_info', {}).get('coin_type')
-                existing.coin_name = deal_data.get('asw_info', {}).get('coin_name')
-                existing.silver_weight_oz = deal_data.get('asw_info', {}).get('asw')
-                existing.quantity = deal_data.get('asw_info', {}).get('quantity', 1)
-                existing.face_value = deal_data.get('asw_info', {}).get('face_value', 0.0)
+                existing.metal_type = metal_type
+                existing.metal_purity = metal_purity
+                existing.coin_type = metal_info.get('coin_type')
+                existing.coin_name = coin_name
+                existing.metal_weight_oz = metal_weight_oz  # Unified column
+                existing.quantity = metal_info.get('quantity', 1)
+                existing.face_value = metal_info.get('face_value', 0.0)
                 existing.spot_price = deal_data.get('metrics', {}).get('spot_price')
                 existing.cost_per_oz = deal_data.get('metrics', {}).get('cost_per_oz')
                 existing.discount_percent = deal_data.get('metrics', {}).get('discount_percent')
@@ -221,8 +245,10 @@ class DatabaseManager:
                 existing.item_url = deal_data.get('item_url')
                 existing.image_url = deal_data.get('image_url')
                 existing.time_listed = deal_data.get('time_listed')
+                existing.item_end_date = deal_data.get('item_end_date')
+                existing.last_seen_in_scan = datetime.utcnow()  # Update last seen time
                 existing.scan_id = deal_data.get('scan_id')
-                existing.confidence = deal_data.get('asw_info', {}).get('confidence')
+                existing.confidence = confidence
                 
                 # Preserve is_hidden flag
                 existing.is_hidden = was_hidden
@@ -239,11 +265,13 @@ class DatabaseManager:
                     price=deal_data['price'],
                     shipping_cost=deal_data['shipping_cost'],
                     total_cost=deal_data['total_cost'],
-                    coin_type=deal_data.get('asw_info', {}).get('coin_type'),
-                    coin_name=deal_data.get('asw_info', {}).get('coin_name'),
-                    silver_weight_oz=deal_data.get('asw_info', {}).get('asw'),
-                    quantity=deal_data.get('asw_info', {}).get('quantity', 1),
-                    face_value=deal_data.get('asw_info', {}).get('face_value', 0.0),
+                    metal_type=metal_type,
+                    metal_purity=metal_purity,
+                    coin_type=metal_info.get('coin_type'),
+                    coin_name=coin_name,
+                    metal_weight_oz=metal_weight_oz,  # Unified column
+                    quantity=metal_info.get('quantity', 1),
+                    face_value=metal_info.get('face_value', 0.0),
                     spot_price=deal_data.get('metrics', {}).get('spot_price'),
                     cost_per_oz=deal_data.get('metrics', {}).get('cost_per_oz'),
                     discount_percent=deal_data.get('metrics', {}).get('discount_percent'),
@@ -255,8 +283,10 @@ class DatabaseManager:
                     item_url=deal_data.get('item_url'),
                     image_url=deal_data.get('image_url'),
                     time_listed=deal_data.get('time_listed'),
+                    item_end_date=deal_data.get('item_end_date'),
+                    last_seen_in_scan=datetime.utcnow(),  # Track when deal was last seen
                     scan_id=deal_data.get('scan_id'),
-                    confidence=deal_data.get('asw_info', {}).get('confidence'),
+                    confidence=confidence,
                     is_hidden=False,
                     hidden_at=None
                 )
@@ -304,13 +334,22 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def get_recent_deals(self, limit: int = 50) -> list:
-        """Get recent deals from database (excluding hidden deals)"""
+    def get_recent_deals(self, limit: int = 50, metal_type: str = 'all') -> list:
+        """Get recent deals from database (excluding hidden deals)
+        
+        Args:
+            limit: Maximum number of deals to return
+            metal_type: Filter by metal type ('silver', 'gold', or 'all')
+        """
         session = self.get_session()
         try:
-            deals = session.query(Deal).filter_by(is_hidden=False).order_by(
-                Deal.qualified_at.desc()
-            ).limit(limit).all()
+            query = session.query(Deal).filter_by(is_hidden=False)
+            
+            # Filter by metal type if specified
+            if metal_type != 'all':
+                query = query.filter_by(metal_type=metal_type)
+            
+            deals = query.order_by(Deal.qualified_at.desc()).limit(limit).all()
             
             return [self._deal_to_dict(deal) for deal in deals]
             
@@ -385,8 +424,11 @@ class DatabaseManager:
             'price': deal.price,
             'shipping_cost': deal.shipping_cost,
             'total_cost': deal.total_cost,
+            'metal_type': deal.metal_type if hasattr(deal, 'metal_type') else 'silver',
+            'metal_purity': deal.metal_purity if hasattr(deal, 'metal_purity') else 1.0,
             'coin_name': deal.coin_name,
-            'silver_weight_oz': deal.silver_weight_oz,
+            'metal_weight_oz': deal.metal_weight_oz,
+            'silver_weight_oz': deal.metal_weight_oz,  # For backward compatibility in API responses
             'spot_price': deal.spot_price,
             'cost_per_oz': deal.cost_per_oz,
             'discount_percent': deal.discount_percent,
@@ -443,18 +485,25 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def save_price_history(self, price: float, source: str = None) -> bool:
-        """Save a price history entry (every other scrape)"""
+    def save_price_history(self, price: float, source: str = None, metal_type: str = 'silver') -> bool:
+        """Save a price history entry (every other scrape)
+        
+        Args:
+            price: The price to save
+            source: Source of the price (URL or API name)
+            metal_type: Type of metal ('silver', 'gold', 'platinum', 'palladium')
+        """
         session = self.get_session()
         try:
             price_history = PriceHistory(
+                metal_type=metal_type,
                 price=price,
                 source=source
             )
             
             session.add(price_history)
             session.commit()
-            logger.debug(f"Saved price history: ${price:.2f} from {source}")
+            logger.debug(f"Saved {metal_type} price history: ${price:.2f} from {source}")
             return True
             
         except Exception as e:
@@ -464,14 +513,20 @@ class DatabaseManager:
         finally:
             session.close()
     
-    def get_price_history(self, days: int = 30) -> list:
-        """Get price history for the last N days"""
+    def get_price_history(self, days: int = 30, metal_type: str = 'silver') -> list:
+        """Get price history for the last N days for a specific metal
+        
+        Args:
+            days: Number of days to look back
+            metal_type: Type of metal ('silver', 'gold', 'platinum', 'palladium')
+        """
         session = self.get_session()
         try:
             cutoff_date = datetime.utcnow() - timedelta(days=days)
             
-            price_history = session.query(PriceHistory).filter(
-                PriceHistory.timestamp >= cutoff_date
+            query = session.query(PriceHistory).filter(
+                PriceHistory.timestamp >= cutoff_date,
+                PriceHistory.metal_type == metal_type
             ).order_by(PriceHistory.timestamp.asc()).all()
             
             return [
@@ -480,7 +535,7 @@ class DatabaseManager:
                     'price': ph.price,
                     'source': ph.source
                 }
-                for ph in price_history
+                for ph in query
             ]
             
         except Exception as e:
@@ -640,6 +695,7 @@ class DatabaseManager:
             for deal in hidden_deals:
                 if deal.item_id not in current_scan_item_ids:
                     stale_deals.append(deal)
+                    logger.debug(f"Deal {deal.item_id} not in current scan - marking for expunge")
             
             # Delete stale hidden deals
             expunged_count = 0
@@ -660,6 +716,110 @@ class DatabaseManager:
         except Exception as e:
             session.rollback()
             logger.error(f"Error expunging stale hidden deals: {e}")
+            return 0
+        finally:
+            session.close()
+    
+    def cleanup_stale_deals(self, current_scan_item_ids: set, max_age_hours: int = 24) -> int:
+        """
+        Remove visible deals that haven't been seen in recent scans.
+        
+        This ensures that sold/expired items are removed from the dashboard.
+        A deal is considered stale if:
+        1. It's not in the current scan results, AND
+        2. It hasn't been seen for more than max_age_hours
+        
+        Args:
+            current_scan_item_ids: Set of item IDs from the current scan
+            max_age_hours: Maximum hours a deal can go unseen before removal
+            
+        Returns:
+            Number of deals removed
+        """
+        session = self.get_session()
+        try:
+            # Get all visible (non-hidden) deals
+            visible_deals = session.query(Deal).filter_by(is_hidden=False).all()
+            
+            if not visible_deals:
+                logger.debug("No visible deals to check for staleness")
+                return 0
+            
+            stale_count = 0
+            now = datetime.utcnow()
+            
+            for deal in visible_deals:
+                # Skip deals that are in the current scan
+                if deal.item_id in current_scan_item_ids:
+                    continue
+                
+                # Check if deal is stale based on last_seen_in_scan or qualified_at
+                last_seen = deal.last_seen_in_scan or deal.qualified_at
+                if last_seen:
+                    age_hours = (now - last_seen).total_seconds() / 3600
+                    if age_hours > max_age_hours:
+                        logger.info(f"Removing stale deal (not seen for {age_hours:.1f}h): {deal.title[:50]}...")
+                        session.delete(deal)
+                        stale_count += 1
+                else:
+                    # No timestamp - remove if not in current scan
+                    logger.info(f"Removing deal with no timestamp: {deal.title[:50]}...")
+                    session.delete(deal)
+                    stale_count += 1
+            
+            session.commit()
+            
+            if stale_count > 0:
+                logger.info(f"Removed {stale_count} stale deals (not seen in recent scans)")
+            else:
+                logger.debug(f"All {len(visible_deals)} visible deals are still active")
+            
+            return stale_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error cleaning up stale deals: {e}")
+            return 0
+        finally:
+            session.close()
+    
+    def remove_expired_deals(self) -> int:
+        """
+        Remove deals whose eBay listing has ended (based on item_end_date).
+        
+        Returns:
+            Number of deals removed
+        """
+        session = self.get_session()
+        try:
+            now = datetime.utcnow()
+            
+            # Find all deals with an end date in the past
+            expired_deals = session.query(Deal).filter(
+                Deal.item_end_date != None,
+                Deal.item_end_date < now
+            ).all()
+            
+            if not expired_deals:
+                logger.debug("No expired deals to remove")
+                return 0
+            
+            expired_count = 0
+            for deal in expired_deals:
+                logger.info(f"Removing expired deal (ended {deal.item_end_date}): {deal.title[:50]}...")
+                session.delete(deal)
+                expired_count += 1
+            
+            session.commit()
+            
+            if expired_count > 0:
+                logger.info(f"Removed {expired_count} expired deals")
+            
+            return expired_count
+            
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error removing expired deals: {e}")
             return 0
         finally:
             session.close()

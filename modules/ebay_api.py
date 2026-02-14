@@ -141,6 +141,34 @@ class eBayAPI:
         logger.info(f"Total unique listings found: {len(all_items)}")
         return all_items
     
+    def get_all_gold_listings(self) -> List[Dict]:
+        """
+        Search for gold listings across all configured keywords and categories
+        """
+        all_items = []
+        seen_item_ids = set()
+        
+        # Search in coins category
+        for keyword in Config.GOLD_SEARCH_KEYWORDS:
+            items = self.search_listings(keyword, Config.EBAY_CATEGORY_COINS)
+            for item in items:
+                item_id = item.get('itemId')
+                if item_id and item_id not in seen_item_ids:
+                    all_items.append(item)
+                    seen_item_ids.add(item_id)
+        
+        # Search in bullion category for gold
+        for keyword in ['gold bullion', 'gold bars', 'gold rounds']:
+            items = self.search_listings(keyword, Config.EBAY_CATEGORY_BULLION)
+            for item in items:
+                item_id = item.get('itemId')
+                if item_id and item_id not in seen_item_ids:
+                    all_items.append(item)
+                    seen_item_ids.add(item_id)
+        
+        logger.info(f"Total unique gold listings found: {len(all_items)}")
+        return all_items
+    
     def extract_item_details(self, item: Dict) -> Dict:
         """
         Extract relevant details from eBay item response
@@ -160,6 +188,19 @@ class eBayAPI:
             price = float(item.get('price', {}).get('value', 0))
             currency = item.get('price', {}).get('currency', 'USD')
             item_url = item.get('itemWebUrl', '')
+            
+            # Check if listing has ended (itemEndDate is available in search results)
+            # Note: quantityAvailable is NOT available in search results, only in getItem API
+            item_end_date = item.get('itemEndDate')
+            if item_end_date:
+                try:
+                    from datetime import timezone
+                    end_date = datetime.fromisoformat(item_end_date.replace('Z', '+00:00'))
+                    if end_date < datetime.now(timezone.utc):
+                        logger.debug(f"Skipping ended listing: {title[:50]}...")
+                        return None
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Could not parse itemEndDate: {e}")
             
             # Shipping cost
             shipping_cost = 0.0
@@ -192,6 +233,7 @@ class eBayAPI:
                 'listing_type': item.get('buyingOptions', []),
                 'category_id': item.get('categoryId', ''),
                 'time_listed': item.get('itemCreationDate'),  # eBay listing start time
+                'item_end_date': item_end_date,  # When listing ends (for expiration tracking)
                 'scan_time': datetime.now().isoformat()
             }
             

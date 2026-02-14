@@ -9,7 +9,10 @@ const AppState = {
     lastScanTime: null,
     priceInfo: null,
     deals: [],
-    scanInterval: null
+    scanInterval: null,
+    sortBy: 'discount',  // default sort: discount (highest first)
+    sortOrder: 'desc',   // desc = descending, asc = ascending
+    currentMetal: 'silver'  // current metal filter
 };
 
 // Utility functions
@@ -62,10 +65,13 @@ function timeSince(isoString) {
 }
 
 // API Functions
-async function fetchPriceInfo() {
-    console.log('fetchPriceInfo() called');
+async function fetchPriceInfo(metalType = null) {
+    console.log('fetchPriceInfo() called with metalType:', metalType);
+    // Ensure metal is never null or 'null' string
+    const metal = (metalType &amp;&amp; metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
+    
     try {
-        const response = await fetch('/api/price');
+        const response = await fetch(`/api/price?metal_type=${metal}`);
         console.log('fetchPriceInfo response status:', response.status);
         const data = await response.json();
         console.log('fetchPriceInfo data:', data);
@@ -76,6 +82,24 @@ async function fetchPriceInfo() {
         }
     } catch (error) {
         console.error('Error fetching price info:', error);
+    }
+}
+
+async function fetchPriceHistory(metalType = null) {
+    console.log('fetchPriceHistory() called with metalType:', metalType);
+    const metal = metalType || AppState.currentMetal || 'silver';
+    
+    try {
+        const response = await fetch(`/api/price/history?metal_type=${metal}&days=30`);
+        console.log('fetchPriceHistory response status:', response.status);
+        const data = await response.json();
+        console.log('fetchPriceHistory data:', data);
+        
+        if (data.success) {
+            updatePriceChart(data.data);
+        }
+    } catch (error) {
+        console.error('Error fetching price history:', error);
     }
 }
 
@@ -94,16 +118,25 @@ async function fetchScanStatus() {
     }
 }
 
-async function fetchDeals() {
-    console.log('fetchDeals() called');
+async function fetchDeals(metalType = null) {
+    console.log('fetchDeals() called with metalType:', metalType);
+    
+    // Use provided metalType or current filter, ensure it's never null
+    const metal = (metalType &amp;&amp; metalType !== 'null') ? metalType : (AppState.currentMetal || 'silver');
+    
+    // Clear deals immediately to show loading/empty state
+    AppState.deals = [];
+    updateDealsTable();
+    
     try {
-        const response = await fetch('/api/deals?limit=50');
+        const response = await fetch(`/api/deals?limit=50&amp;metal_type=${metal}`);
         console.log('fetchDeals response status:', response.status);
         const data = await response.json();
         console.log('fetchDeals data:', data);
         
         if (data.success) {
             AppState.deals = data.data;
+            console.log(`Updated AppState.deals with ${data.data.length} ${metal} deals`);
             updateDealsTable();
         }
     } catch (error) {
@@ -124,11 +157,15 @@ async function startScan() {
         updateScanButton();
         
         console.log('Sending POST request to /api/scan');
+        // Ensure metalType is always a valid string, never null or undefined
+        const metalType = AppState.currentMetal &amp;&amp; AppState.currentMetal !== 'null' ? AppState.currentMetal : 'silver';
+        console.log('Scan metal type:', metalType);
         const response = await fetch('/api/scan', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
-            }
+            },
+            body: JSON.stringify({ metal_type: metalType })
         });
         
         console.log('Response status:', response.status);
@@ -218,21 +255,21 @@ function updatePriceDisplay() {
     const priceInfo = AppState.priceInfo;
     if (!priceInfo) return;
     
-    // Update spot price - API returns 'price' not 'spot_price'
+    // Update spot price - API returns 'spot_price'
     const spotPriceEl = document.getElementById('spot-price');
     if (spotPriceEl) {
-        if (priceInfo.price !== null && priceInfo.price !== undefined) {
-            spotPriceEl.textContent = formatCurrency(priceInfo.price);
+        if (priceInfo.spot_price !== null && priceInfo.spot_price !== undefined) {
+            spotPriceEl.textContent = formatCurrency(priceInfo.spot_price);
         } else {
             spotPriceEl.textContent = 'Loading...';
         }
     }
     
-    // Update threshold - calculate from price
+    // Update threshold - calculate from spot_price
     const thresholdEl = document.getElementById('threshold-price');
-    if (thresholdEl && priceInfo.price) {
+    if (thresholdEl && priceInfo.spot_price) {
         const thresholdPercent = 0.89; // 89% threshold from config
-        const threshold = priceInfo.price * thresholdPercent;
+        const threshold = priceInfo.spot_price * thresholdPercent;
         thresholdEl.textContent = formatCurrency(threshold);
     }
     
@@ -295,6 +332,36 @@ function updateScanButton() {
     }
 }
 
+function sortDeals(deals) {
+    const sorted = [...deals];
+    
+    sorted.sort((a, b) => {
+        let compareValue = 0;
+        
+        switch (AppState.sortBy) {
+            case 'discount':
+                // Sort by discount percentage
+                compareValue = b.discount_percent - a.discount_percent;
+                break;
+            case 'price_per_oz':
+                // Sort by cost per ounce (lower is better)
+                compareValue = a.cost_per_oz - b.cost_per_oz;
+                break;
+            case 'time_listed':
+                // Sort by time listed (newer first)
+                const timeA = a.time_listed ? new Date(a.time_listed).getTime() : 0;
+                const timeB = b.time_listed ? new Date(b.time_listed).getTime() : 0;
+                compareValue = timeB - timeA;
+                break;
+        }
+        
+        // Reverse if ascending order
+        return AppState.sortOrder === 'asc' ? -compareValue : compareValue;
+    });
+    
+    return sorted;
+}
+
 function updateDealsTable() {
     const dealsTable = document.getElementById('deals-table-body');
     const emptyState = document.getElementById('empty-state');
@@ -324,8 +391,11 @@ function updateDealsTable() {
         dealsSection.style.display = 'block';
     }
     
+    // Sort deals before rendering
+    const sortedDeals = sortDeals(AppState.deals);
+    
     // Populate table
-    AppState.deals.forEach(deal => {
+    sortedDeals.forEach(deal => {
         const row = document.createElement('tr');
         
         // Determine discount badge class
@@ -526,4 +596,130 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+    
+    // Sort button event listeners
+    const sortButtons = document.querySelectorAll('.sort-btn');
+    sortButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const sortType = this.getAttribute('data-sort');
+            
+            // Toggle sort order if clicking same button
+            if (AppState.sortBy === sortType) {
+                AppState.sortOrder = AppState.sortOrder === 'desc' ? 'asc' : 'desc';
+            } else {
+                // New sort type - set default order
+                AppState.sortBy = sortType;
+                if (sortType === 'price_per_oz') {
+                    AppState.sortOrder = 'asc';  // Lower price is better
+                } else {
+                    AppState.sortOrder = 'desc'; // Higher discount/newer time is better
+                }
+            }
+            
+            // Update button states
+            sortButtons.forEach(btn => {
+                btn.classList.remove('active', 'asc', 'desc');
+            });
+            this.classList.add('active', AppState.sortOrder);
+            
+            // Re-render table with new sort
+            updateDealsTable();
+            
+            // Show notification
+            const sortNames = {
+                'discount': 'Discount %',
+                'price_per_oz': 'Price per Ounce',
+                'time_listed': 'Time Listed'
+            };
+            const orderText = AppState.sortOrder === 'asc' ? 'ascending' : 'descending';
+            showNotification(`Sorted by ${sortNames[sortType]} (${orderText})`, 'info');
+        });
+    });
+    
+    // Set initial active sort button
+    const defaultSortBtn = document.querySelector('.sort-btn[data-sort="discount"]');
+    if (defaultSortBtn) {
+        defaultSortBtn.classList.add('active', 'desc');
+    }
 });
+
+// Filter by metal type
+function filterByMetal() {
+    const metalFilter = document.getElementById('metal-type-filter');
+    const selectedMetal = metalFilter.value;
+    
+    console.log('Filtering by metal:', selectedMetal);
+    AppState.currentMetal = selectedMetal;
+    
+    // Update UI labels
+    updateMetalLabels(selectedMetal);
+    
+    // Fetch deals for selected metal
+    fetchDeals(selectedMetal);
+    
+    // Update price info for selected metal
+    fetchPriceInfo(selectedMetal);
+    
+    // Update price history chart for selected metal
+    fetchPriceHistory(selectedMetal);
+}
+
+// Update metal-specific labels in UI
+function updateMetalLabels(metalType) {
+    const metalName = metalType === 'all' ? 'All Metals' : 
+                      metalType.charAt(0).toUpperCase() + metalType.slice(1);
+    
+    // Update various labels
+    const elements = {
+        'metal-name': metalName,
+        'chart-metal-name': metalName,
+        'deals-metal-name': metalName,
+        'empty-metal-name': metalName
+    };
+    
+    Object.entries(elements).forEach(([id, text]) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.textContent = text;
+        }
+    });
+    
+    // Update empty message text
+    const emptyMessage = document.getElementById('empty-message');
+    if (emptyMessage) {
+        emptyMessage.textContent = `Start a scan to search eBay for undervalued ${metalType} deals`;
+    }
+    
+    // Update threshold subtext based on metal
+    const thresholdSubtext = document.getElementById('threshold-subtext');
+    if (thresholdSubtext) {
+        if (metalType === 'gold') {
+            thresholdSubtext.textContent = '85% of spot (15% discount)';
+        } else if (metalType === 'silver') {
+            thresholdSubtext.textContent = '83% of spot (17% discount)';
+        } else {
+            thresholdSubtext.textContent = 'Max price per troy oz to qualify';
+        }
+    }
+}
+
+// Fetch all spot prices at once (optional optimization)
+async function fetchAllSpotPrices() {
+    console.log('fetchAllSpotPrices() called');
+    
+    try {
+        const response = await fetch('/api/spot_prices');
+        console.log('fetchAllSpotPrices response status:', response.status);
+        const data = await response.json();
+        console.log('fetchAllSpotPrices data:', data);
+        
+        if (data.success) {
+            // Store all prices in AppState for quick access
+            AppState.allPrices = data.data;
+            return data.data;
+        }
+    } catch (error) {
+        console.error('Error fetching all spot prices:', error);
+        return null;
+    }
+}

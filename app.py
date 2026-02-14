@@ -135,8 +135,8 @@ def index():
                 'verified': True
             }
         
-        # Get recent deals from database
-        recent_deals = db_manager.get_recent_deals(limit=20)
+        # Don't load deals server-side - let JavaScript fetch them based on selected filter
+        recent_deals = []
         
         # Get scan state from database
         last_scan_record = db_manager.get_last_scan()
@@ -173,26 +173,47 @@ def index():
 
 @app.route('/api/price')
 def api_price():
-    """API endpoint for current spot price - returns database record only"""
+    """API endpoint for current spot price - supports metal_type parameter
+    
+    Query parameters:
+        metal_type: 'silver' (default) or 'gold'
+    """
     try:
-        # Get most recent price from database (no live fetch)
-        latest_price = db_manager.get_latest_price()
+        metal_type = request.args.get('metal_type', 'silver')
         
-        if latest_price:
-            price_info = {
-                'price': latest_price.price,
-                'source': latest_price.source,
-                'timestamp': latest_price.timestamp.isoformat() if latest_price.timestamp else None,
-                'verified': True
-            }
+        # If "all" is requested, redirect to /api/spot_prices
+        if metal_type == 'all':
+            return jsonify({
+                'success': False,
+                'error': 'Use /api/spot_prices to get all metal prices at once'
+            }), 400
+        
+        # Validate metal_type
+        if metal_type not in ['silver', 'gold']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver" or "gold"'
+            }), 400
+        
+        # Get price info based on metal type
+        from modules.multi_metal_spot_price import MultiMetalSpotPrice
+        multi_spot = MultiMetalSpotPrice()
+        
+        if metal_type == 'gold':
+            price_info = multi_spot.get_gold_price_info()
         else:
-            # Fallback to cached price if no database record
-            price_info = spot_price.get_price_info()
-            price_info['verified'] = False
+            price_info = multi_spot.get_silver_price_info()
         
         return jsonify({
             'success': True,
-            'data': price_info
+            'data': {
+                'spot_price': price_info.get('spot_price'),
+                'threshold': price_info.get('threshold'),
+                'source': price_info.get('source'),
+                'timestamp': price_info.get('timestamp'),
+                'verified': price_info.get('verified', False),
+                'metal_type': metal_type
+            }
         })
     except Exception as e:
         logger.error(f"Error getting price info: {e}")
@@ -201,27 +222,101 @@ def api_price():
             'error': str(e)
         }), 500
 
-def run_background_scan():
-    """Background thread function to perform scan"""
+@app.route('/api/spot_prices')
+def api_spot_prices():
+    """API endpoint to get spot prices for all supported metals at once
+    
+    Returns prices for silver, gold, platinum, and palladium in a single call
+    """
+    try:
+        from modules.multi_metal_spot_price import MultiMetalSpotPrice
+        multi_spot = MultiMetalSpotPrice()
+        
+        # Get all spot prices
+        all_prices = multi_spot.get_all_spot_prices()
+        
+        # Format response with thresholds
+        result = {}
+        
+        for metal, price_data in all_prices.items():
+            spot_price = price_data.get('spot_price')
+            
+            if spot_price:
+                # Calculate threshold based on metal type
+                if metal == 'gold':
+                    threshold = spot_price * 0.85  # 15% discount
+                elif metal == 'silver':
+                    threshold = spot_price * 0.83  # 17% discount
+                elif metal == 'platinum':
+                    threshold = spot_price * 0.90  # 10% discount
+                elif metal == 'palladium':
+                    threshold = spot_price * 0.90  # 10% discount
+                else:
+                    threshold = spot_price * 0.85  # Default 15% discount
+                
+                result[metal] = {
+                    'spot_price': spot_price,
+                    'threshold': threshold,
+                    'source': price_data.get('source'),
+                    'timestamp': price_data.get('timestamp'),
+                    'verified': price_data.get('verified', False)
+                }
+            else:
+                result[metal] = {
+                    'spot_price': None,
+                    'threshold': None,
+                    'source': 'None',
+                    'timestamp': price_data.get('timestamp'),
+                    'verified': False,
+                    'error': 'Price not available'
+                }
+        
+        return jsonify({
+            'success': True,
+            'data': result,
+            'metals': list(result.keys())
+        })
+    
+    except Exception as e:
+        logger.error(f"Error getting spot prices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+def run_background_scan(metal_type: str = 'silver'):
+    """Background thread function to perform scan
+    
+    Args:
+        metal_type: Type of metal to scan for ('silver' or 'gold')
+    """
     global scan_state
     scan_start = datetime.utcnow()
     scan_state['scan_start_time'] = scan_start
     scan_state['items_scanned'] = 0
     scan_state['elapsed_time'] = 0
     scan_state['scan_error'] = None
+    scan_state['metal_type'] = metal_type
 
     try:
-        logger.info("Background scan started")
+        logger.info(f"Background {metal_type} scan started")
         scan_state['is_scanning'] = True
 
+        # Create a new DealScanner instance for this specific metal type
+        # This ensures the correct calculator is initialized
+        scanner = DealScanner(metal_type=metal_type)
+        
         # Fetch fresh spot price at the START of scan (only fetch when scanning)
-        logger.info("Fetching fresh spot price for scan...")
-        spot_price.get_price_info()
+        logger.info(f"Fetching fresh {metal_type} spot price for scan...")
+        if metal_type == 'gold':
+            scanner.spot_price.get_gold_price_info()
+        else:
+            scanner.spot_price.get_silver_price_info()
         logger.info("Spot price fetch complete")
 
-        # Perform scan
-        deals = deal_scanner.perform_scan()
-        total_items_scanned = deal_scanner.items_scanned
+        # Perform scan with specified metal type
+        deals = scanner.perform_scan()
+        total_items_scanned = scanner.items_scanned
 
         # Save deals to database
         saved_count = 0
@@ -230,7 +325,7 @@ def run_background_scan():
                 saved_count += 1
 
         # Save scan history
-        summary = deal_scanner.get_deal_summary()
+        summary = scanner.get_deal_summary()
         scan_id = summary.get('scan_id', datetime.now().strftime('%Y%m%d_%H%M%S'))
         scan_end = datetime.utcnow()
 
@@ -251,9 +346,9 @@ def run_background_scan():
 
         # Update scan state
         scan_state['last_scan_time'] = datetime.now().isoformat()
-        scan_state['scan_results'] = deal_scanner.get_all_formatted_deals()
+        scan_state['scan_results'] = scanner.get_all_formatted_deals()
         scan_state['items_scanned'] = total_items_scanned
-        logger.info(f"Background scan complete: {len(deals)} deals found, {saved_count} saved to database")
+        logger.info(f"Background {metal_type} scan complete: {len(deals)} deals found, {saved_count} saved to database")
 
     except Exception as e:
         logger.error(f"Error during background scan: {e}")
@@ -270,7 +365,9 @@ def run_background_scan():
 
 @app.route('/api/scan', methods=['POST'])
 def api_scan():
-    """API endpoint to trigger a scan - runs in background thread"""
+    """API endpoint to trigger a scan - runs in background thread
+    Supports metal_type parameter: 'silver' (default) or 'gold'
+    """
     global scan_state
     
     if scan_state['is_scanning']:
@@ -283,20 +380,29 @@ def api_scan():
         scan_state['is_scanning'] = True
         scan_state['scan_error'] = None
         
-        logger.info("Manual scan triggered via API - starting background thread")
+        # Get metal type from request (default to silver)
+        metal_type = request.json.get('metal_type', 'silver') if request.is_json else 'silver'
         
-        # Start scan in background thread
+        # Handle null, None, or invalid values
+        if not metal_type or metal_type == 'null' or metal_type not in ['silver', 'gold']:
+            metal_type = 'silver'  # Default to silver for any invalid value
+            logger.warning(f"Invalid metal_type received, defaulting to silver")
+        
+        logger.info(f"Manual {metal_type} scan triggered via API - starting background thread")
+        
+        # Start scan in background thread with metal type
         import threading
-        scan_thread = threading.Thread(target=run_background_scan, daemon=True)
+        scan_thread = threading.Thread(target=run_background_scan, args=(metal_type,), daemon=True)
         scan_thread.start()
         
         # Return immediately without waiting for scan to complete
         return jsonify({
             'success': True,
-            'message': 'Scan started in background',
+            'message': f'{metal_type.capitalize()} scan started in background',
             'data': {
                 'status': 'running',
-                'message': 'Scan is running in the background. Check status with /api/scan/status'
+                'metal_type': metal_type,
+                'message': f'{metal_type.capitalize()} scan is running in the background. Check status with /api/scan/status'
             }
         })
     
@@ -308,22 +414,30 @@ def api_scan():
             'success': False,
             'error': str(e)
         }), 500
-        
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
 
 @app.route('/api/deals')
 def api_deals():
-    """API endpoint to get deals"""
+    """API endpoint to get deals
+    Supports filtering by metal_type parameter: 'silver', 'gold', or 'all' (default)
+    """
     try:
         limit = request.args.get('limit', 50, type=int)
-        deals = db_manager.get_recent_deals(limit=limit)
+        metal_type = request.args.get('metal_type', 'all')
+        
+        # Validate metal_type
+        if metal_type not in ['silver', 'gold', 'all']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver", "gold", or "all"'
+            }), 400
+        
+        deals = db_manager.get_recent_deals(limit=limit, metal_type=metal_type)
         
         return jsonify({
             'success': True,
-            'data': deals
+            'data': deals,
+            'metal_type': metal_type,
+            'count': len(deals)
         })
     except Exception as e:
         logger.error(f"Error getting deals: {e}")
@@ -409,10 +523,19 @@ def api_settings():
 
 @app.route('/api/price/history')
 def api_price_history():
-    """API endpoint to get silver spot price history"""
+    """API endpoint to get spot price history for specified metal"""
     try:
         days = request.args.get('days', 30, type=int)
-        price_history = db_manager.get_price_history(days=days)
+        metal_type = request.args.get('metal_type', 'silver').lower()
+        
+        # Validate metal_type
+        if metal_type not in ['silver', 'gold']:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metal_type. Must be "silver" or "gold"'
+            }), 400
+        
+        price_history = db_manager.get_price_history(days=days, metal_type=metal_type)
         
         return jsonify({
             'success': True,
@@ -545,6 +668,102 @@ def run_migration():
             'error': str(e)
         }), 500
 
+@app.route('/admin/migrate/listing_tracking', methods=['POST'])
+def migrate_listing_tracking():
+    """
+    Admin endpoint to add listing tracking columns to deals table
+    Adds: item_end_date, last_seen_in_scan
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/listing_tracking \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check - require a secret key
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    database_url = os.getenv('DATABASE_URL')
+    
+    if not database_url:
+        return jsonify({
+            'success': False,
+            'error': 'DATABASE_URL not configured'
+        }), 500
+    
+    try:
+        from sqlalchemy import create_engine, text
+        engine = create_engine(database_url)
+        
+        migrations_run = []
+        
+        with engine.connect() as conn:
+            # Migration 1: Add item_end_date column
+            check_sql = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'deals' 
+            AND column_name = 'item_end_date';
+            """
+            result = conn.execute(text(check_sql))
+            if not result.fetchone():
+                logger.info("Adding item_end_date column...")
+                conn.execute(text("ALTER TABLE deals ADD COLUMN item_end_date TIMESTAMP;"))
+                conn.commit()
+                migrations_run.append('item_end_date')
+            
+            # Migration 2: Add last_seen_in_scan column
+            check_sql = """
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = 'deals' 
+            AND column_name = 'last_seen_in_scan';
+            """
+            result = conn.execute(text(check_sql))
+            if not result.fetchone():
+                logger.info("Adding last_seen_in_scan column...")
+                conn.execute(text("ALTER TABLE deals ADD COLUMN last_seen_in_scan TIMESTAMP;"))
+                conn.commit()
+                migrations_run.append('last_seen_in_scan')
+            
+            # Create indexes
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deals_item_end_date ON deals(item_end_date);"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deals_last_seen ON deals(last_seen_in_scan);"))
+                conn.commit()
+            except Exception as e:
+                if "already exists" not in str(e).lower():
+                    logger.warning(f"Index creation warning: {e}")
+            
+            engine.dispose()
+            
+            if migrations_run:
+                logger.info(f"Migration completed! Added columns: {migrations_run}")
+                return jsonify({
+                    'success': True,
+                    'message': f'Successfully added columns: {migrations_run}',
+                    'columns_added': migrations_run
+                })
+            else:
+                return jsonify({
+                    'success': True,
+                    'message': 'All columns already exist',
+                    'action': 'skipped'
+                })
+            
+    except Exception as e:
+        logger.error(f"Migration failed: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.errorhandler(500)
 def server_error(error):
     logger.error(f"Server error: {error}")
@@ -608,3 +827,264 @@ if __name__ == '__main__':
             digest_scheduler.stop()
         except:
             pass
+@app.route('/admin/test/db', methods=['GET'])
+def test_db_connection():
+    """Test database connection"""
+    try:
+        from sqlalchemy import create_engine, text
+        database_url = os.getenv('DATABASE_URL')
+        
+        if not database_url:
+            return jsonify({
+                'success': False,
+                'error': 'DATABASE_URL not configured'
+            }), 500
+        
+        engine = create_engine(database_url)
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT version();" if 'postgresql' in database_url else "SELECT sqlite_version();"))
+            version = result.fetchone()
+            
+            return jsonify({
+                'success': True,
+                'database_type': 'PostgreSQL' if 'postgresql' in database_url else 'SQLite',
+                'version': str(version[0]),
+                'database_url_preview': database_url[:50] + '...'
+            })
+    
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/admin/migrate/metal_support', methods=['POST'])
+def migrate_metal_support():
+    """
+    Admin endpoint to add multi-metal support columns
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/metal_support \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    try:
+        import sys
+        import os
+        from sqlalchemy import create_engine, text, inspect
+        
+        database_url = os.getenv('DATABASE_URL')
+        
+        if not database_url:
+            return jsonify({
+                'success': False,
+                'error': 'DATABASE_URL not configured'
+            }), 500
+        
+        engine = create_engine(database_url)
+        is_postgres = 'postgresql' in database_url
+        
+        logger.info(f"Starting multi-metal migration (database type: {'PostgreSQL' if is_postgres else 'SQLite'})")
+        
+        with engine.connect() as conn:
+            # Step 1: Add metal_type column
+            try:
+                conn.execute(text("ALTER TABLE deals ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
+                conn.commit()
+                logger.info("Added metal_type column")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 2: Add metal_purity column
+            try:
+                conn.execute(text("ALTER TABLE deals ADD COLUMN metal_purity FLOAT DEFAULT 1.0"))
+                conn.commit()
+                logger.info("Added metal_purity column")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 3: Create index on metal_type
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_deals_metal_type ON deals(metal_type)"))
+                conn.commit()
+                logger.info("Created index on metal_type")
+            except Exception:
+                pass  # Index may already exist
+            
+            # Step 4: Create spot_prices table
+            inspector = inspect(engine)
+            tables = inspector.get_table_names()
+            if 'spot_prices' not in tables:
+                if is_postgres:
+                    conn.execute(text("""
+                        CREATE TABLE spot_prices (
+                            id SERIAL PRIMARY KEY,
+                            metal_type VARCHAR(20) NOT NULL,
+                            price FLOAT NOT NULL,
+                            source VARCHAR(100),
+                            timestamp TIMESTAMP DEFAULT NOW(),
+                            verified BOOLEAN DEFAULT FALSE
+                        )
+                    """))
+                else:
+                    conn.execute(text("""
+                        CREATE TABLE spot_prices (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            metal_type VARCHAR(20) NOT NULL,
+                            price FLOAT NOT NULL,
+                            source VARCHAR(100),
+                            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            verified BOOLEAN DEFAULT 0
+                        )
+                    """))
+                conn.commit()
+                logger.info("Created spot_prices table")
+            
+            # Step 5: Create index on spot_prices
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_spot_prices_metal_timestamp ON spot_prices(metal_type, timestamp DESC)"))
+                conn.commit()
+                logger.info("Created index on spot_prices")
+            except Exception:
+                pass
+            
+            # Step 6: Update price_history table
+            try:
+                conn.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
+                conn.commit()
+                logger.info("Added metal_type to price_history")
+            except Exception as e:
+                if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                    raise
+            
+            # Step 7: Create index on price_history
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal ON price_history(metal_type, timestamp DESC)"))
+                conn.commit()
+                logger.info("Created index on price_history")
+            except Exception:
+                pass
+        
+        logger.info("Multi-metal support migration completed successfully")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Multi-metal support migration completed',
+            'columns_added': ['metal_type', 'metal_purity'],
+            'tables_created': ['spot_prices'],
+            'indexes_created': ['idx_deals_metal_type', 'idx_spot_prices_metal_timestamp']
+        })
+    
+    except Exception as e:
+        logger.error(f"Migration failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/admin/migrate/price_history_metal_type', methods=['POST'])
+def migrate_price_history_metal_type():
+    """
+    Admin endpoint to add metal_type column to price_history table
+    
+    Usage:
+    curl -X POST https://scanner.teckstart.com/admin/migrate/price_history_metal_type \
+      -H "X-Migration-Key: teckstart_migrate_2025"
+    """
+    
+    # Simple security check
+    expected_key = os.getenv('MIGRATION_SECRET_KEY', 'teckstart_migrate_2025')
+    provided_key = request.headers.get('X-Migration-Key')
+    
+    if provided_key != expected_key:
+        return jsonify({
+            'success': False,
+            'error': 'Unauthorized'
+        }), 401
+    
+    try:
+        from database.models import DatabaseManager
+        from sqlalchemy import text
+        
+        db = DatabaseManager()
+        session = db.get_session()
+        
+        logger.info("Starting price_history metal_type migration using DatabaseManager")
+        
+        # Step 1: Add metal_type column
+        try:
+            session.execute(text("ALTER TABLE price_history ADD COLUMN metal_type VARCHAR(20) DEFAULT 'silver'"))
+            session.commit()
+            logger.info("Added metal_type column to price_history")
+        except Exception as e:
+            session.rollback()
+            if 'duplicate column' not in str(e).lower() and 'already exists' not in str(e).lower():
+                raise
+            logger.info("metal_type column already exists")
+        
+        # Step 2: Create index on metal_type
+        try:
+            session.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_type ON price_history(metal_type)"))
+            session.commit()
+            logger.info("Created index on price_history.metal_type")
+        except Exception as e:
+            session.rollback()
+            if 'already exists' in str(e).lower():
+                logger.info("Index already exists")
+            else:
+                raise
+        
+        # Step 3: Update existing records to have metal_type = 'silver'
+        try:
+            session.execute(text("UPDATE price_history SET metal_type = 'silver' WHERE metal_type IS NULL OR metal_type = ''"))
+            session.commit()
+            logger.info("Updated existing price_history records")
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Could not update existing records: {e}")
+        
+        # Step 4: Create composite index for (metal_type, timestamp)
+        try:
+            session.execute(text("CREATE INDEX IF NOT EXISTS idx_price_history_metal_timestamp ON price_history(metal_type, timestamp)"))
+            session.commit()
+            logger.info("Created composite index on price_history(metal_type, timestamp)")
+        except Exception as e:
+            session.rollback()
+            if 'already exists' in str(e).lower():
+                logger.info("Composite index already exists")
+            else:
+                raise
+        
+        session.close()
+        logger.info("Price history metal_type migration completed successfully")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Price history metal_type migration completed',
+            'columns_added': ['metal_type'],
+            'indexes_created': ['idx_price_history_metal_type', 'idx_price_history_metal_timestamp']
+        })
+    
+    except Exception as e:
+        logger.error(f"Migration failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
