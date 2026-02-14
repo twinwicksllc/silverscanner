@@ -409,8 +409,10 @@ class GoldCalculator:
         total_cost = item.get('total_cost', 0.0)
         agw = gold_result.get('agw', 0.0)
         
-        # Gold threshold: 85% of spot price (15% discount)
-        threshold = spot_price * 0.85
+        # Gold threshold: Use configured threshold
+        # If specific gold threshold is not set, fallback to global deal threshold
+        threshold_percent = Config.METAL_THRESHOLDS.get('gold', 92.0) / 100.0
+        threshold = spot_price * threshold_percent
         
         metrics = {
             'total_cost': total_cost,

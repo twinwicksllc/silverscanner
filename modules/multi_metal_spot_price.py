@@ -389,8 +389,12 @@ class MultiMetalSpotPrice:
         spot_price = price_info.get('spot_price')
         
         if spot_price:
-            # Silver threshold: 83% of spot price (17% discount)
-            threshold = spot_price * 0.83
+            # Silver threshold: Use configured threshold
+            threshold_percent = Config.DEAL_THRESHOLD_PERCENTAGE / 100.0
+            threshold = spot_price * threshold_percent
+            
+            price_info['threshold'] = threshold
+            price_info['threshold_percentage'] = Config.DEAL_THRESHOLD_PERCENTAGE
             
             # Save price history every other fetch
             self._fetch_count['silver'] += 1
@@ -428,7 +432,12 @@ class MultiMetalSpotPrice:
         
         if spot_price:
             # Gold threshold: 85% of spot price (15% discount)
-            threshold = spot_price * 0.85
+            # Default to 92% if setting missing
+            threshold_percent = Config.METAL_THRESHOLDS.get('gold', 92.0) / 100.0
+            threshold = spot_price * threshold_percent
+            
+            price_info['threshold'] = threshold
+            price_info['threshold_percentage'] = Config.METAL_THRESHOLDS.get('gold', 92.0)
             
             # Save price history every other fetch
             self._fetch_count['gold'] += 1

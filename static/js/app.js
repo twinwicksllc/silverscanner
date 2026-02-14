@@ -265,12 +265,28 @@ function updatePriceDisplay() {
         }
     }
     
-    // Update threshold - calculate from spot_price
+    // Update threshold - use API values
     const thresholdEl = document.getElementById('threshold-price');
+    const thresholdSubtext = document.getElementById('threshold-subtext');
+    
     if (thresholdEl && priceInfo.spot_price) {
-        const thresholdPercent = 0.89; // 89% threshold from config
-        const threshold = priceInfo.spot_price * thresholdPercent;
+        // Use provided threshold or calculate fallback
+        let threshold = priceInfo.threshold;
+        // Default to a sensible fallback if percentage missing, but try to use API value
+        let percent = priceInfo.threshold_percentage || 83;
+        
+        if (!threshold) {
+             threshold = priceInfo.spot_price * (percent / 100);
+        }
+        
         thresholdEl.textContent = formatCurrency(threshold);
+        
+        // Update the subtext with the actual percentage used
+        if (thresholdSubtext) {
+             const discount = (100 - percent).toFixed(0);
+             const percentStr = Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1);
+             thresholdSubtext.textContent = `${percentStr}% of spot (${discount}% discount)`;
+        }
     }
     
     // Update last update - API returns 'timestamp' not 'last_update'
@@ -690,16 +706,10 @@ function updateMetalLabels(metalType) {
         emptyMessage.textContent = `Start a scan to search eBay for undervalued ${metalType} deals`;
     }
     
-    // Update threshold subtext based on metal
+    // Update threshold subtext based on metal - let fetchPriceInfo update this with actual data
     const thresholdSubtext = document.getElementById('threshold-subtext');
     if (thresholdSubtext) {
-        if (metalType === 'gold') {
-            thresholdSubtext.textContent = '85% of spot (15% discount)';
-        } else if (metalType === 'silver') {
-            thresholdSubtext.textContent = '83% of spot (17% discount)';
-        } else {
-            thresholdSubtext.textContent = 'Max price per troy oz to qualify';
-        }
+        thresholdSubtext.textContent = 'Loading...';
     }
 }
 

@@ -73,7 +73,13 @@
                         Loading...
                     {% endif %}
                 </div>
-                <div class="subtext" id="threshold-subtext">Max price per troy oz to qualify</div>
+                <div class="subtext" id="threshold-subtext">
+                    {% if price_info and price_info.threshold_percentage %}
+                        {{ "%.0f"|format(price_info.threshold_percentage) }}% of spot ({{ "%.0f"|format(100 - price_info.threshold_percentage) }}% discount)
+                    {% else %}
+                        Max price per troy oz to qualify
+                    {% endif %}
+                </div>
             </div>
 
             <div class="price-card">

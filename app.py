@@ -209,6 +209,7 @@ def api_price():
             'data': {
                 'spot_price': price_info.get('spot_price'),
                 'threshold': price_info.get('threshold'),
+                'threshold_percentage': price_info.get('threshold_percentage'),
                 'source': price_info.get('source'),
                 'timestamp': price_info.get('timestamp'),
                 'verified': price_info.get('verified', False),
@@ -243,20 +244,23 @@ def api_spot_prices():
             
             if spot_price:
                 # Calculate threshold based on metal type
-                if metal == 'gold':
-                    threshold = spot_price * 0.85  # 15% discount
-                elif metal == 'silver':
-                    threshold = spot_price * 0.83  # 17% discount
-                elif metal == 'platinum':
-                    threshold = spot_price * 0.90  # 10% discount
-                elif metal == 'palladium':
-                    threshold = spot_price * 0.90  # 10% discount
+                # Use Config settings which are updated from DB
+                if metal == 'silver':
+                    # Use the main global setting for silver as it's the primary use case
+                    threshold_percent = Config.DEAL_THRESHOLD_PERCENTAGE / 100.0
+                elif metal in Config.METAL_THRESHOLDS:
+                    # Use specific metal threshold if available
+                    threshold_percent = Config.METAL_THRESHOLDS[metal] / 100.0
                 else:
-                    threshold = spot_price * 0.85  # Default 15% discount
+                    # Default fallback
+                    threshold_percent = 0.85
+                
+                threshold = spot_price * threshold_percent
                 
                 result[metal] = {
                     'spot_price': spot_price,
                     'threshold': threshold,
+                    'threshold_percentage': round(threshold_percent * 100, 1),
                     'source': price_data.get('source'),
                     'timestamp': price_data.get('timestamp'),
                     'verified': price_data.get('verified', False)
