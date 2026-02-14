@@ -8,6 +8,7 @@ import logging
 import time
 from typing import Dict, Optional
 from datetime import datetime, timedelta
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ class MultiMetalSpotPrice:
     """
     
     def __init__(self):
+        # Allow Config override for testing
+        self.config = Config
         from database.models import DatabaseManager
         
         self.coingecko_url = "https://api.coingecko.com/api/v3/simple/price"

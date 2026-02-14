@@ -303,7 +303,19 @@ def run_background_scan(metal_type: str = 'silver'):
     scan_state['metal_type'] = metal_type
 
     try:
+        # Step 1: Force refresh Config settings from database to ensure latest values
+        load_settings_from_database_early()
+        
         logger.info(f"Background {metal_type} scan started")
+        
+        # Step 2: Log the active threshold
+        if metal_type == 'silver':
+            threshold_pct = Config.DEAL_THRESHOLD_PERCENTAGE
+        else:
+            threshold_pct = Config.METAL_THRESHOLDS.get(metal_type, 92.0)
+            
+        logger.info(f"Using scan configuration: Threshold={threshold_pct}%, Feedback_Min={Config.MIN_SELLER_FEEDBACK}%")
+        
         scan_state['is_scanning'] = True
 
         # Create a new DealScanner instance for this specific metal type
