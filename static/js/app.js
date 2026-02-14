@@ -270,19 +270,16 @@ function updatePriceDisplay() {
     const thresholdSubtext = document.getElementById('threshold-subtext');
     
     if (thresholdEl && priceInfo.spot_price) {
-        // Use provided threshold or calculate fallback
-        let threshold = priceInfo.threshold;
-        // Default to a sensible fallback if percentage missing, but try to use API value
-        let percent = priceInfo.threshold_percentage || 83;
+        // Use threshold and percentage from API
+        const threshold = priceInfo.threshold;
+        const percent = priceInfo.threshold_percentage;
         
-        if (!threshold) {
-             threshold = priceInfo.spot_price * (percent / 100);
+        if (threshold) {
+            thresholdEl.textContent = formatCurrency(threshold);
         }
         
-        thresholdEl.textContent = formatCurrency(threshold);
-        
-        // Update the subtext with the actual percentage used
-        if (thresholdSubtext) {
+        // Update the subtext only if we have the percentage from API
+        if (thresholdSubtext && percent) {
              const discount = (100 - percent).toFixed(0);
              const percentStr = Number.isInteger(percent) ? percent.toFixed(0) : percent.toFixed(1);
              thresholdSubtext.textContent = `${percentStr}% of spot (${discount}% discount)`;
