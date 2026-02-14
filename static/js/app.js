@@ -70,7 +70,7 @@ async function fetchPriceInfo() {
         const data = await response.json();
         console.log('fetchPriceInfo data:', data);
         
-        if (data.success) {
+        if (data && data.success) {
             AppState.priceInfo = data.data;
             updatePriceDisplay();
         }
