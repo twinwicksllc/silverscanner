@@ -144,15 +144,26 @@ class eBayAPI:
     def get_all_gold_listings(self) -> List[Dict]:
         """
         Search for gold listings across all configured keywords and categories
+        Excludes items with 'bezel' in the title (jewelry settings)
         """
         all_items = []
         seen_item_ids = set()
+        
+        # Keywords to exclude from gold search (jewelry-related)
+        exclude_keywords = ['bezel', 'setting', 'mount', 'ring', 'pendant', 'chain']
         
         # Search in coins category
         for keyword in Config.GOLD_SEARCH_KEYWORDS:
             items = self.search_listings(keyword, Config.EBAY_CATEGORY_COINS)
             for item in items:
                 item_id = item.get('itemId')
+                title = item.get('title', '').lower()
+                
+                # Skip items with exclude keywords
+                if any(exclude_kw in title for exclude_kw in exclude_keywords):
+                    logger.debug(f"Skipping gold item with exclude keyword: {item.get('title', '')[:50]}...")
+                    continue
+                    
                 if item_id and item_id not in seen_item_ids:
                     all_items.append(item)
                     seen_item_ids.add(item_id)
@@ -162,6 +173,13 @@ class eBayAPI:
             items = self.search_listings(keyword, Config.EBAY_CATEGORY_BULLION)
             for item in items:
                 item_id = item.get('itemId')
+                title = item.get('title', '').lower()
+                
+                # Skip items with exclude keywords
+                if any(exclude_kw in title for exclude_kw in exclude_keywords):
+                    logger.debug(f"Skipping gold item with exclude keyword: {item.get('title', '')[:50]}...")
+                    continue
+                    
                 if item_id and item_id not in seen_item_ids:
                     all_items.append(item)
                     seen_item_ids.add(item_id)
@@ -183,6 +201,13 @@ class eBayAPI:
             title_lower = title.lower()
             if any(keyword in title_lower for keyword in scam_keywords):
                 logger.debug(f"Skipping scam item: {title[:50]}...")
+                return None
+            
+            # Gold jewelry filter - skip items with jewelry-related keywords
+            # This excludes bezels, settings, rings, pendants, and chains
+            jewelry_keywords = ['bezel', 'setting', 'mount', 'ring', 'pendant', 'chain', 'necklace', 'bracelet']
+            if any(keyword in title_lower for keyword in jewelry_keywords):
+                logger.debug(f"Skipping gold jewelry item: {title[:50]}...")
                 return None
             
             price = float(item.get('price', {}).get('value', 0))
