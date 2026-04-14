@@ -69,6 +69,17 @@ class GoldCalculator:
             logger.debug(f"Item excluded (scam keywords): {title[:50]}...")
             return {'identified': False, 'reason': 'exclusion_keywords'}
         
+        # Skip items that are clearly SILVER (not gold)
+        silver_keywords = ['silver krugerrand', 'silver eagle', 'silver maple', 
+                          'silver buffalo', 'silver philharmonic', 'silver britannia',
+                          'silver panda', 'silver kangaroo', 'silver koala',
+                          '1 oz silver', '1oz silver', 'troy oz silver', 
+                          'silver bar', 'silver round', 'silver coin',
+                          ' 999 silver', '.999 silver', 'pure silver']
+        if any(kw in title for kw in silver_keywords):
+            logger.debug(f"Item is silver (not gold): {title[:50]}...")
+            return {'identified': False, 'reason': 'silver_item'}
+        
         # Try to identify gold content through various methods
         result = None
         
@@ -123,10 +134,12 @@ class GoldCalculator:
             (r'(?:canadian\s+)?gold\s+maple(?:\s+leaf)?\s+1\s*(?:oz|troy)', '1oz_maple', 'Canadian Gold Maple Leaf 1 oz', 1.0),
             (r'1\s*(?:oz|troy).*(?:gold\s+maple|maple.*gold)', '1oz_maple', 'Canadian Gold Maple Leaf 1 oz', 1.0),
             
-            # South African Krugerrand
-            (r'krugerrand\s+1\s*(?:oz|troy)', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
-            (r'1\s*(?:oz|troy).*krugerrand', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
-            (r'\bkrugerrand\b', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
+            # South African Gold Krugerrand (must exclude SILVER Krugerrand)
+            (r'gold\s+krugerrand\s+1\s*(?:oz|troy)', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
+            (r'1\s*(?:oz|troy)\s*gold\s*krugerrand', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
+            (r'krugerrand\s+1\s*(?:oz|troy)\s*gold', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
+            # Krugerrand without explicit "silver" keyword (default is gold)
+            (r'(?<!silver\s)krugerrand\s+1\s*(?:oz|troy)(?!\s*silver)', '1oz_krugerrand', 'Gold Krugerrand 1 oz', 1.0),
             
             # Austrian Philharmonic
             (r'(?:austrian\s+)?(?:gold\s+)?philharmonic', '1oz_philharmonic', 'Austrian Gold Philharmonic 1 oz', 1.0),
@@ -252,7 +265,18 @@ class GoldCalculator:
     def _identify_bar_or_round(self, text: str) -> Dict:
         """Identify gold bars and rounds"""
         
-        # Try to extract weight and identify as bar/round
+        # Check for "gold bar" or "gold round" keywords first
+        is_bar = bool(re.search(r'\b(?:gold\s+)?bar\b', text, re.IGNORECASE)) and 'gold' in text
+        is_round = bool(re.search(r'\bgold\s+round\b', text, re.IGNORECASE))
+        
+        # Also check for collectible bars with gold content (e.g., "1/4 grain 24k gold bar")
+        has_gold_bar = bool(re.search(r'\d+(?:/\d+)?\s*grain.*(?:\d+k\s+)?gold', text, re.IGNORECASE))
+        has_gold_bar = has_gold_bar or bool(re.search(r'\d+k\s+gold\s+bar', text, re.IGNORECASE))
+        
+        if not (is_bar or is_round or has_gold_bar):
+            return {'identified': False}
+        
+        # Try to extract weight
         weight_info = self._extract_weight(text)
         
         if not weight_info:
@@ -260,23 +284,25 @@ class GoldCalculator:
         
         weight_oz = weight_info['weight_oz']
         
-        # Check if it's a bar or round
-        is_bar = bool(re.search(r'\bgold\s+bar\b', text, re.IGNORECASE))
-        is_round = bool(re.search(r'\bgold\s+round\b', text, re.IGNORECASE))
+        # Extract karat if present (e.g., "24k gold bar")
+        karat_match = re.search(r'(\d+)k\s+(?:gold\s+)?bar', text, re.IGNORECASE)
+        if karat_match:
+            karat = int(karat_match.group(1))
+            purity = self.karat_purity.get(karat, 0.9999)
+        else:
+            purity = 0.9999
         
-        if is_bar or is_round:
-            item_type = 'Gold Bar' if is_bar else 'Gold Round'
-            return {
-                'identified': True,
-                'coin_type': f'{weight_oz}oz_gold_{"bar" if is_bar else "round"}',
-                'coin_name': f'{weight_oz} oz {item_type}',
-                'agw': weight_oz,
-                'purity': 0.9999,
-                'confidence': 0.85,
-                'category': 'bar_round'
-            }
+        item_type = 'Gold Bar' if (is_bar or has_gold_bar) else 'Gold Round'
         
-        return {'identified': False}
+        return {
+            'identified': True,
+            'coin_type': f'{weight_oz:.6f}oz_gold_{"bar" if (is_bar or has_gold_bar) else "round"}',
+            'coin_name': f'{weight_oz:.6f} oz {item_type}',
+            'agw': weight_oz * purity,  # AGW accounts for purity
+            'purity': purity,
+            'confidence': 0.85,
+            'category': 'bar_round'
+        }
 
     def _identify_jewelry(self, text: str) -> Dict:
         """Identify gold jewelry/scrap by karat and weight"""
@@ -332,12 +358,34 @@ class GoldCalculator:
     def _extract_weight(self, text: str) -> Optional[Dict]:
         """Extract weight from text, converting to troy oz"""
         
+        # IMPORTANT: Check for GRAIN first - it's a tiny unit often confused with gram
+        # 1 grain = 0.002083 troy oz (NOT the same as gram!)
+        grain_match = re.search(r'(\d+(?:/\d+)?)\s*grain', text, re.IGNORECASE)
+        if grain_match:
+            try:
+                weight_str = grain_match.group(1)
+                if '/' in weight_str:
+                    # Fraction like "1/4 grain"
+                    num, denom = weight_str.split('/')
+                    weight = float(num) / float(denom)
+                else:
+                    weight = float(weight_str)
+                # 1 grain = 0.002083 troy oz
+                return {
+                    'weight': weight,
+                    'unit': 'grain',
+                    'weight_oz': weight * 0.002083
+                }
+            except (ValueError, ZeroDivisionError):
+                pass
+        
         patterns = [
             # Troy oz
             (r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz(?:s|troy)?', 'troy_oz', 1.0),
             (r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?ounce', 'troy_oz', 1.0),
-            # Grams
-            (r'(\d+(?:\.\d+)?)\s*(?:g|gr|gram)', 'grams', 1/31.1035),
+            # Grams (must NOT match "grain" - use word boundary)
+            (r'(\d+(?:\.\d+)?)\s*g\b(?!rain)', 'grams', 1/31.1035),
+            (r'(\d+(?:\.\d+)?)\s*grams?', 'grams', 1/31.1035),
             # Pennyweight
             (r'(\d+(?:\.\d+)?)\s*(?:dwt|pennyweight)', 'dwt', 1/20.0),
         ]
