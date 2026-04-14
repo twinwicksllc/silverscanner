@@ -86,6 +86,9 @@ class eBayAPI:
             # Add shipping filter to exclude items with no shipping
             params['filter'] += ',deliveryCountry:US'
             
+            # Add item location filter to only show items from US-based sellers
+            params['filter'] += ',itemLocationCountry:US'
+            
             logger.info(f"Searching eBay for: {keywords}")
             response = requests.get(search_url, headers=self.headers, params=params)
             
@@ -266,6 +269,72 @@ class eBayAPI:
             logger.error(f"Error extracting item details: {e}")
             return {}
     
+    def get_seller_listings(self, seller_username: str, max_results: int = 200) -> List[Dict]:
+        """
+        Fetch all active fixed-price listings for a specific eBay seller.
+        Uses the Browse API sellers filter to scope results to one seller.
+
+        Args:
+            seller_username: The eBay seller's username
+            max_results: Maximum number of listings to retrieve
+
+        Returns:
+            List of raw item dictionaries from eBay API
+        """
+        if not self.authenticate():
+            logger.error("Cannot fetch seller listings: authentication failed")
+            return []
+
+        try:
+            search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
+
+            all_items = []
+            offset = 0
+            page_size = min(max_results, 100)  # API max per call is 100
+
+            while len(all_items) < max_results:
+                params = {
+                    'limit': page_size,
+                    'offset': offset,
+                    'filter': f'sellers:{{{seller_username}}},buyingOptions:{{FIXED_PRICE}},itemLocationCountry:US',
+                    'fieldgroups': 'EXTENDED'
+                }
+
+                logger.info(f"Fetching seller listings page (offset={offset}) for: {seller_username}")
+                response = requests.get(search_url, headers=self.headers, params=params)
+
+                if response.status_code == 429:
+                    retry_after = int(response.headers.get('Retry-After', 60))
+                    logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+                    time.sleep(retry_after)
+                    continue
+
+                response.raise_for_status()
+                data = response.json()
+
+                items = data.get('itemSummaries', [])
+                if not items:
+                    break
+
+                all_items.extend(items)
+                total_available = data.get('total', 0)
+                offset += len(items)
+
+                logger.info(f"Fetched {len(all_items)}/{total_available} listings for seller '{seller_username}'")
+
+                # Stop if we've fetched all available items
+                if offset >= total_available or len(all_items) >= max_results:
+                    break
+
+                time.sleep(Config.API_CALL_DELAY_SECONDS)
+
+            logger.info(f"Total seller listings fetched: {len(all_items)}")
+            return all_items
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to fetch seller listings: {e}")
+            return []
+
     def test_connection(self) -> bool:
         """
         Test eBay API connection
