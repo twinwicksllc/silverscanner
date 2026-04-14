@@ -271,188 +271,91 @@ class eBayAPI:
     
     def get_seller_listings(self, seller_username: str, max_results: int = 200) -> List[Dict]:
         """
-        Fetch all active fixed-price listings for a specific eBay seller.
-        Uses the Finding API findItemsBySeller call - the correct way to get all listings from a seller.
+        Fetch active fixed-price silver/gold listings for a specific eBay seller.
+
+        Strategy: Use Browse API keyword searches for common silver/gold terms,
+        then filter results client-side to only keep items from this specific seller.
+
+        The Finding API was decommissioned Feb 2025. The Browse API sellers:{} filter
+        is not a valid/documented filter. This keyword+filter approach is the only
+        reliable method using Client Credentials auth.
 
         Args:
             seller_username: The eBay seller's username
             max_results: Maximum number of listings to retrieve
 
         Returns:
-            List of raw item dictionaries from eBay API (converted to Browse API format for compatibility)
+            List of raw item dictionaries from eBay API
         """
         if not self.authenticate():
             logger.error("Cannot fetch seller listings: authentication failed")
             return []
 
-        # Warn if using sandbox - sandbox has very limited test data
         if Config.EBAY_USE_SANDBOX:
-            logger.warning(f"Using eBay SANDBOX environment - real seller listings will NOT be found!")
-            logger.warning(f"Set EBAY_USE_SANDBOX=False in environment to use production API")
+            logger.warning("Using eBay SANDBOX environment - real seller listings will NOT be found!")
 
         try:
-            # Use Finding API findItemsBySeller - the correct API for fetching seller's listings
-            # Note: Browse API sellers:{username} filter is NOT a valid/supported filter!
-            if Config.EBAY_USE_SANDBOX:
-                finding_url = "https://svcs.sandbox.ebay.com/services/search/FindingService/v1"
-            else:
-                finding_url = "https://svcs.ebay.com/services/search/FindingService/v1"
+            search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
 
-            all_items = []
-            page_number = 1
-            entries_per_page = 100  # Finding API max per page
+            # Keywords covering the full range of silver and gold listings a typical seller would have
+            SELLER_SEARCH_KEYWORDS = [
+                'silver', 'gold', 'silver coin', 'gold coin',
+                'silver bar', 'gold bar', 'silver round', 'gold round',
+                'junk silver', '90% silver', 'silver eagle', 'gold eagle',
+                'morgan dollar', 'peace dollar', 'silver dollar',
+                'walking liberty', 'franklin half', 'kennedy half',
+                'mercury dime', 'silver dime', 'silver quarter',
+                'gold maple', 'silver maple', 'krugerrand',
+                'gold buffalo', 'gold sovereign', 'silver bullion',
+            ]
 
-            while len(all_items) < max_results:
-                # Finding API uses different headers and parameters
+            all_items = {}  # use dict keyed by itemId to deduplicate
+
+            for keyword in SELLER_SEARCH_KEYWORDS:
+                if len(all_items) >= max_results:
+                    break
+
                 params = {
-                    'OPERATION-NAME': 'findItemsBySeller',
-                    'SECURITY-APPNAME': Config.EBAY_CLIENT_ID,
-                    'RESPONSE-DATA-FORMAT': 'JSON',
-                    'REST-PAYLOAD': '',
-                    'sellerName': seller_username,
-                    'paginationInput.entriesPerPage': min(entries_per_page, max_results - len(all_items)),
-                    'paginationInput.pageNumber': page_number,
-                    'itemFilter(0).name': 'ListingType',
-                    'itemFilter(0).value': 'FixedPrice',
+                    'q': keyword,
+                    'limit': 100,
+                    'filter': f'buyingOptions:{{FIXED_PRICE}},deliveryCountry:US',
+                    'fieldgroups': 'EXTENDED',
+                    'sort': 'newlyListed',
                 }
 
-                logger.info(f"Fetching seller listings page {page_number} for: {seller_username}")
-                
-                # Finding API uses different headers - no Authorization header needed for this call
-                finding_headers = {
-                    'X-EBAY-SOA-SECURITY-APPNAME': Config.EBAY_CLIENT_ID,
-                    'X-EBAY-SOA-OPERATION-NAME': 'findItemsBySeller',
-                    'Accept': 'application/json',
-                }
-                
-                response = requests.get(finding_url, headers=finding_headers, params=params)
+                logger.info(f"Searching '{keyword}' for seller {seller_username}")
+                response = requests.get(search_url, headers=self.headers, params=params)
 
                 if response.status_code == 429:
                     retry_after = int(response.headers.get('Retry-After', 60))
-                    logger.warning(f"Rate limited. Waiting {retry_after} seconds...")
+                    logger.warning(f"Rate limited. Waiting {retry_after}s...")
                     time.sleep(retry_after)
                     continue
 
-                logger.info(f"Finding API response status: {response.status_code}")
                 if response.status_code != 200:
-                    logger.error(f"Finding API error response: {response.text}")
-                    response.raise_for_status()
+                    logger.warning(f"Search '{keyword}' returned {response.status_code}, skipping")
+                    continue
 
                 data = response.json()
-                
-                # Parse Finding API response format
-                find_response = data.get('findItemsBySellerResponse', [{}])[0]
-                search_result = find_response.get('searchResult', [{}])[0]
-                pagination = find_response.get('paginationOutput', [{}])[0]
-                
-                total_entries = int(pagination.get('totalEntries', [0])[0])
-                items = search_result.get('item', [])
-                
-                logger.info(f"Finding API reports total entries: {total_entries}, page items: {len(items)}")
+                items = data.get('itemSummaries', [])
 
-                if not items:
-                    logger.info("No items returned in this page, stopping pagination")
-                    break
-
-                # Convert Finding API format to Browse API format for compatibility with seller_checker.py
-                converted_items = []
+                # Filter to only items from our target seller
                 for item in items:
-                    converted = self._convert_finding_to_browse_format(item)
-                    if converted:
-                        converted_items.append(converted)
+                    item_seller = item.get('seller', {}).get('username', '').lower()
+                    item_id = item.get('itemId', '')
+                    if item_seller == seller_username.lower() and item_id not in all_items:
+                        all_items[item_id] = item
 
-                all_items.extend(converted_items)
-                page_number += 1
-
-                logger.info(f"Fetched {len(all_items)}/{total_entries} listings for seller '{seller_username}'")
-
-                # Stop if we've fetched all available items
-                if len(all_items) >= total_entries or len(all_items) >= max_results:
-                    break
-
+                logger.info(f"After '{keyword}': found {len(all_items)} unique items from {seller_username}")
                 time.sleep(Config.API_CALL_DELAY_SECONDS)
 
-            logger.info(f"Total seller listings fetched: {len(all_items)}")
-            return all_items
+            result = list(all_items.values())[:max_results]
+            logger.info(f"Total seller listings fetched: {len(result)}")
+            return result
 
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to fetch seller listings: {e}")
             return []
-
-    def _convert_finding_to_browse_format(self, finding_item: Dict) -> Optional[Dict]:
-        """
-        Convert Finding API item format to Browse API item format.
-        This ensures compatibility with seller_checker.py which expects Browse API format.
-        """
-        try:
-            # Extract basic info from Finding API format
-            item_id = finding_item.get('itemId', [''])[0]
-            title = finding_item.get('title', [''])[0]
-            
-            # Price
-            selling_status = finding_item.get('sellingStatus', [{}])[0]
-            current_price = selling_status.get('currentPrice', [{}])[0]
-            price = float(current_price.get('__value__', 0))
-            currency = current_price.get('@currencyId', 'USD')
-            
-            # URL
-            view_item_url = finding_item.get('viewItemURL', [''])[0]
-            
-            # Image
-            gallery_url = finding_item.get('galleryURL', [''])[0]
-            
-            # Seller info
-            seller_info = finding_item.get('sellerInfo', [{}])[0]
-            seller_username = seller_info.get('sellerUserName', [''])[0]
-            feedback_percent = seller_info.get('positiveFeedbackPercent', ['0'])[0]
-            
-            # Shipping
-            shipping_info = finding_item.get('shippingInfo', [{}])[0]
-            shipping_cost_val = shipping_info.get('shippingServiceCost', [{}])[0]
-            shipping_cost = float(shipping_cost_val.get('__value__', 0)) if shipping_cost_val else 0.0
-            
-            # Listing type
-            listing_info = finding_item.get('listingInfo', [{}])[0]
-            listing_type = listing_info.get('listingType', ['FixedPrice'])[0]
-            
-            # Category
-            primary_category = finding_item.get('primaryCategory', [{}])[0]
-            category_id = primary_category.get('categoryId', [''])[0]
-            
-            # Condition
-            condition = finding_item.get('condition', [{}])[0]
-            condition_name = condition.get('conditionDisplayName', ['Unknown'])[0]
-
-            # Return in Browse API format
-            return {
-                'itemId': item_id,
-                'title': title,
-                'price': {
-                    'value': str(price),
-                    'currency': currency
-                },
-                'itemWebUrl': view_item_url,
-                'image': {
-                    'imageUrl': gallery_url
-                },
-                'seller': {
-                    'username': seller_username,
-                    'feedbackPercentage': feedback_percent
-                },
-                'shippingOptions': [{
-                    'shippingCost': {
-                        'value': str(shipping_cost),
-                        'currency': currency
-                    }
-                }],
-                'buyingOptions': [listing_type],
-                'categoryId': category_id,
-                'condition': condition_name,
-            }
-
-        except Exception as e:
-            logger.error(f"Error converting Finding API item: {e}")
-            return None
 
     def test_connection(self) -> bool:
         """
