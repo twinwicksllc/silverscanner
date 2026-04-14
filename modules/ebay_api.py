@@ -358,13 +358,19 @@ class eBayAPI:
                 data = response.json()
                 items = data.get('itemSummaries', [])
                 
+                # Debug: Log total results and sample seller usernames
+                total_results = data.get('total', 0)
+                if items:
+                    sample_sellers = [item.get('seller', {}).get('username', 'N/A') for item in items[:3]]
+                    logger.info(f"Keyword '{keyword}': {len(items)} items returned (total: {total_results}), sample sellers: {sample_sellers}")
+                
                 # Filter to only items from target seller
                 seller_items = [
                     (item.get('itemId'), item)
                     for item in items
                     if item.get('seller', {}).get('username', '').lower() == seller_username.lower()
                 ]
-                logger.info(f"Keyword '{keyword}': found {len(seller_items)} items from seller")
+                logger.info(f"Keyword '{keyword}': found {len(seller_items)} items from seller '{seller_username}'")
                 return seller_items
                 
             except requests.exceptions.RequestException as e:
