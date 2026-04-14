@@ -285,6 +285,11 @@ class eBayAPI:
             logger.error("Cannot fetch seller listings: authentication failed")
             return []
 
+        # Warn if using sandbox - sandbox has very limited test data
+        if Config.EBAY_USE_SANDBOX:
+            logger.warning(f"Using eBay SANDBOX environment - real seller listings will NOT be found!")
+            logger.warning(f"Set EBAY_USE_SANDBOX=False in environment to use production API")
+
         try:
             search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
 
@@ -293,14 +298,17 @@ class eBayAPI:
             page_size = min(max_results, 100)  # API max per call is 100
 
             while len(all_items) < max_results:
+                # Note: Removed itemLocationCountry filter since we're fetching a specific seller's listings
+                # The seller's location is inherent to their account, and this filter was causing empty results
                 params = {
                     'limit': page_size,
                     'offset': offset,
-                    'filter': f'sellers:{{{seller_username}}},buyingOptions:{{FIXED_PRICE}},itemLocationCountry:US',
+                    'filter': f'sellers:{{{seller_username}}},buyingOptions:{{FIXED_PRICE}}',
                     'fieldgroups': 'EXTENDED'
                 }
 
                 logger.info(f"Fetching seller listings page (offset={offset}) for: {seller_username}")
+                logger.debug(f"API params: {params}")
                 response = requests.get(search_url, headers=self.headers, params=params)
 
                 if response.status_code == 429:
@@ -309,15 +317,22 @@ class eBayAPI:
                     time.sleep(retry_after)
                     continue
 
-                response.raise_for_status()
+                # Log response status and any errors
+                logger.info(f"API response status: {response.status_code}")
+                if response.status_code != 200:
+                    logger.error(f"API error response: {response.text}")
+                    response.raise_for_status()
+
                 data = response.json()
+                total_available = data.get('total', 0)
+                logger.info(f"API reports total available: {total_available}")
 
                 items = data.get('itemSummaries', [])
                 if not items:
+                    logger.info(f"No items returned in this page, stopping pagination")
                     break
 
                 all_items.extend(items)
-                total_available = data.get('total', 0)
                 offset += len(items)
 
                 logger.info(f"Fetched {len(all_items)}/{total_available} listings for seller '{seller_username}'")
