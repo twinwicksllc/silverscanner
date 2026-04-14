@@ -275,6 +275,7 @@ class eBayAPI:
 
         Strategy: Use Browse API keyword searches for common silver/gold terms,
         then filter results client-side to only keep items from this specific seller.
+        Uses CONCURRENT requests to avoid 502 timeout issues.
 
         The Finding API was decommissioned Feb 2025. The Browse API sellers:{} filter
         is not a valid/documented filter. This keyword+filter approach is the only
@@ -294,27 +295,28 @@ class eBayAPI:
         if Config.EBAY_USE_SANDBOX:
             logger.warning("Using eBay SANDBOX environment - real seller listings will NOT be found!")
 
-        try:
-            search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
+        # Focused keyword set - top 10 most effective for silver/gold bullion
+        SELLER_SEARCH_KEYWORDS = [
+            'silver coin',
+            'gold coin',
+            'silver bar',
+            'gold bar',
+            'silver round',
+            'silver eagle',
+            'gold eagle',
+            'morgan dollar',
+            'silver dollar',
+            'junk silver',
+        ]
 
-            # Keywords covering the full range of silver and gold listings a typical seller would have
-            SELLER_SEARCH_KEYWORDS = [
-                'silver', 'gold', 'silver coin', 'gold coin',
-                'silver bar', 'gold bar', 'silver round', 'gold round',
-                'junk silver', '90% silver', 'silver eagle', 'gold eagle',
-                'morgan dollar', 'peace dollar', 'silver dollar',
-                'walking liberty', 'franklin half', 'kennedy half',
-                'mercury dime', 'silver dime', 'silver quarter',
-                'gold maple', 'silver maple', 'krugerrand',
-                'gold buffalo', 'gold sovereign', 'silver bullion',
-            ]
-
-            all_items = {}  # use dict keyed by itemId to deduplicate
-
-            for keyword in SELLER_SEARCH_KEYWORDS:
-                if len(all_items) >= max_results:
-                    break
-
+        search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
+        all_items = {}  # use dict keyed by itemId to deduplicate
+        
+        import concurrent.futures
+        
+        def search_keyword(keyword: str) -> List[tuple]:
+            """Search for a single keyword and return items from target seller."""
+            try:
                 params = {
                     'q': keyword,
                     'limit': 100,
@@ -322,40 +324,69 @@ class eBayAPI:
                     'fieldgroups': 'EXTENDED',
                     'sort': 'newlyListed',
                 }
-
+                
                 logger.info(f"Searching '{keyword}' for seller {seller_username}")
-                response = requests.get(search_url, headers=self.headers, params=params)
-
+                response = requests.get(search_url, headers=self.headers, params=params, timeout=15)
+                
                 if response.status_code == 429:
-                    retry_after = int(response.headers.get('Retry-After', 60))
-                    logger.warning(f"Rate limited. Waiting {retry_after}s...")
-                    time.sleep(retry_after)
-                    continue
-
+                    logger.warning(f"Rate limited on '{keyword}'")
+                    return []
+                    
                 if response.status_code != 200:
-                    logger.warning(f"Search '{keyword}' returned {response.status_code}, skipping")
-                    continue
-
+                    logger.warning(f"Search '{keyword}' returned {response.status_code}")
+                    return []
+                    
                 data = response.json()
                 items = data.get('itemSummaries', [])
-
-                # Filter to only items from our target seller
-                for item in items:
-                    item_seller = item.get('seller', {}).get('username', '').lower()
-                    item_id = item.get('itemId', '')
-                    if item_seller == seller_username.lower() and item_id not in all_items:
-                        all_items[item_id] = item
-
-                logger.info(f"After '{keyword}': found {len(all_items)} unique items from {seller_username}")
-                time.sleep(Config.API_CALL_DELAY_SECONDS)
-
-            result = list(all_items.values())[:max_results]
-            logger.info(f"Total seller listings fetched: {len(result)}")
-            return result
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to fetch seller listings: {e}")
-            return []
+                
+                # Filter to only items from target seller
+                seller_items = [
+                    (item.get('itemId'), item)
+                    for item in items
+                    if item.get('seller', {}).get('username', '').lower() == seller_username.lower()
+                ]
+                logger.info(f"Keyword '{keyword}': found {len(seller_items)} items from seller")
+                return seller_items
+                
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Search failed for keyword '{keyword}': {e}")
+                return []
+        
+        # Use ThreadPoolExecutor for concurrent API calls (5 workers = 5 parallel requests)
+        try:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(search_keyword, kw): kw for kw in SELLER_SEARCH_KEYWORDS}
+                
+                for future in concurrent.futures.as_completed(futures, timeout=45):
+                    keyword = futures[future]
+                    try:
+                        items = future.result()
+                        for item_id, item in items:
+                            if item_id and item_id not in all_items:
+                                all_items[item_id] = item
+                                
+                        # Early termination if we have enough results
+                        if len(all_items) >= max_results:
+                            logger.info(f"Reached max_results ({max_results}), stopping early")
+                            break
+                            
+                    except Exception as e:
+                        logger.error(f"Error processing results for '{keyword}': {e}")
+                        
+        except concurrent.futures.TimeoutError:
+            logger.warning("Timeout while searching keywords, returning partial results")
+        except Exception as e:
+            logger.error(f"Error in concurrent search: {e}")
+        
+        # Sort by price (highest first) for consistent ordering
+        result = list(all_items.values())
+        result.sort(key=lambda x: float(x.get('price', {}).get('value', 0)), reverse=True)
+        
+        # Limit to max_results
+        result = result[:max_results]
+        
+        logger.info(f"Total seller listings fetched: {len(result)}")
+        return result
 
     def test_connection(self) -> bool:
         """
