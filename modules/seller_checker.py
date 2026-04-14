@@ -198,16 +198,17 @@ class SellerChecker:
             detected_oz = None
 
             # Try silver first
+            # Note: asw_calculator returns key 'asw', gold_calculator returns key 'agw'
             silver_result = self.asw_calculator.calculate_asw(item)
-            if silver_result and silver_result.get('asw_oz') and silver_result['asw_oz'] > 0:
+            if silver_result and silver_result.get('asw') and silver_result['asw'] > 0:
                 metal_type  = 'silver'
-                detected_oz = silver_result['asw_oz']
+                detected_oz = silver_result['asw']
             else:
                 # Try gold
                 gold_result = self.gold_calculator.calculate_agw(item)
-                if gold_result and gold_result.get('agw_oz') and gold_result['agw_oz'] > 0:
+                if gold_result and gold_result.get('agw') and gold_result['agw'] > 0:
                     metal_type  = 'gold'
-                    detected_oz = gold_result['agw_oz']
+                    detected_oz = gold_result['agw']
                 else:
                     # Keyword-based fallback for metal type (no oz estimate)
                     if any(kw in title_lower for kw in ['silver', 'ag ', 'troy oz silver']):
