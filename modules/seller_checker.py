@@ -86,9 +86,19 @@ class SellerChecker:
 
         # 2. Fetch all active seller listings from eBay
         raw_items = self.ebay_api.get_seller_listings(seller_username, max_results=max_listings)
+        
+        # Check if we're using sandbox (which won't have real data)
+        from config import Config
+        sandbox_warning = None
+        if Config.EBAY_USE_SANDBOX:
+            sandbox_warning = "WARNING: Using eBay SANDBOX environment. Real seller listings cannot be retrieved. Set EBAY_USE_SANDBOX=False in production."
+        
         if not raw_items:
             logger.warning(f"No listings found for seller '{seller_username}'")
-            return self._empty_result(seller_username, spot_prices)
+            result = self._empty_result(seller_username, spot_prices)
+            if sandbox_warning:
+                result['warning'] = sandbox_warning
+            return result
 
         logger.info(f"Fetched {len(raw_items)} listings for @{seller_username}")
 
