@@ -584,6 +584,89 @@ def api_test_ebay():
             'error': str(e)
         }), 500
 
+@app.route('/my-listings')
+def my_listings():
+    """My Listings Checker page"""
+    # Pre-populate seller username from saved settings
+    saved_username = ''
+    try:
+        settings = db_manager.get_all_settings()
+        saved_username = settings.get('MY_SELLER_USERNAME', '')
+    except Exception:
+        pass
+    return render_template('my_listings.html', config=Config, saved_username=saved_username)
+
+
+@app.route('/api/my-listings/check', methods=['POST'])
+def api_check_my_listings():
+    """
+    Check a seller's own listings against current spot prices.
+
+    POST body (JSON):
+        {
+            "seller_username": "myebayname",
+            "metal_filter":    "all" | "silver" | "gold"   (optional, default "all")
+        }
+    """
+    try:
+        data = request.json or {}
+        seller_username = (data.get('seller_username') or '').strip()
+        metal_filter    = data.get('metal_filter', 'all').lower()
+
+        if not seller_username:
+            return jsonify({'success': False, 'error': 'seller_username is required'}), 400
+
+        if metal_filter not in ('silver', 'gold', 'all'):
+            metal_filter = 'all'
+
+        # Persist the username for convenience (pre-fill next time)
+        try:
+            db_manager.save_setting('MY_SELLER_USERNAME', seller_username)
+        except Exception:
+            pass
+
+        logger.info(f"My-listings check requested for seller: {seller_username}, filter: {metal_filter}")
+
+        from modules.seller_checker import SellerChecker
+        checker = SellerChecker()
+        result  = checker.check_seller_listings(
+            seller_username=seller_username,
+            metal_filter=metal_filter,
+        )
+
+        return jsonify({'success': True, 'data': result})
+
+    except Exception as e:
+        logger.error(f"Error in /api/my-listings/check: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/my-listings/spot-prices')
+def api_my_listings_spot_prices():
+    """Return live spot prices for the My Listings page header."""
+    try:
+        from modules.multi_metal_spot_price import MultiMetalSpotPrice
+        spot = MultiMetalSpotPrice()
+        silver_info = spot.get_silver_price_info()
+        gold_info   = spot.get_gold_price_info()
+        return jsonify({
+            'success': True,
+            'silver': {
+                'spot_price': silver_info.get('spot_price'),
+                'source':     silver_info.get('source'),
+                'timestamp':  silver_info.get('timestamp'),
+            },
+            'gold': {
+                'spot_price': gold_info.get('spot_price'),
+                'source':     gold_info.get('source'),
+                'timestamp':  gold_info.get('timestamp'),
+            },
+        })
+    except Exception as e:
+        logger.error(f"Error fetching spot prices for my-listings: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @app.errorhandler(404)
 def not_found(error):
     return render_template('404.html'), 404

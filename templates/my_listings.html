@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Listings Checker – TeckStart Silver Scanner</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* ── Page-specific overrides ─────────────────────────────── */
+        .checker-header {
+            margin-bottom: 30px;
+        }
+        .checker-header h1 { font-size: 2rem; color: var(--primary-color); }
+        .checker-header p  { color: var(--dark-gray); margin-top: 6px; }
+
+        /* Spot price strip */
+        .spot-strip {
+            display: flex;
+            gap: 16px;
+            margin-bottom: 28px;
+            flex-wrap: wrap;
+        }
+        .spot-badge {
+            background: var(--white);
+            border-radius: 10px;
+            padding: 14px 22px;
+            box-shadow: var(--shadow);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .spot-badge .metal-icon { font-size: 1.6rem; }
+        .spot-badge .spot-info .label { font-size: 0.78rem; color: var(--dark-gray); text-transform: uppercase; letter-spacing: .05em; }
+        .spot-badge .spot-info .price { font-size: 1.45rem; font-weight: 700; color: var(--primary-color); }
+        .spot-badge .spot-info .src   { font-size: 0.72rem; color: var(--medium-gray); }
+
+        /* Check form card */
+        .check-card {
+            background: var(--white);
+            border-radius: 12px;
+            padding: 28px 32px;
+            box-shadow: var(--shadow);
+            margin-bottom: 32px;
+        }
+        .check-card h2 { font-size: 1.2rem; margin-bottom: 18px; color: var(--primary-color); }
+        .form-row {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .form-group { display: flex; flex-direction: column; gap: 6px; }
+        .form-group label { font-size: 0.85rem; font-weight: 600; color: var(--primary-color); }
+        .form-group input,
+        .form-group select {
+            padding: 10px 14px;
+            border: 1px solid #d0d7de;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color .2s;
+            background: #fafbfc;
+        }
+        .form-group input:focus,
+        .form-group select:focus { border-color: var(--secondary-color); background: #fff; }
+        .form-group input { min-width: 240px; }
+        #check-btn {
+            padding: 10px 28px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity .2s;
+            white-space: nowrap;
+        }
+        #check-btn:hover   { opacity: .88; }
+        #check-btn:disabled{ opacity: .55; cursor: not-allowed; }
+
+        /* Status bar */
+        #status-bar {
+            display: none;
+            align-items: center;
+            gap: 12px;
+            margin-top: 18px;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        #status-bar.info    { background: #eaf4fd; color: #1a6fa3; display: flex; }
+        #status-bar.success { background: #eafaf1; color: #1e8449; display: flex; }
+        #status-bar.error   { background: #fdedec; color: #a93226; display: flex; }
+
+        /* Summary badges row */
+        #summary-row {
+            display: none;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+        .summary-badge {
+            border-radius: 10px;
+            padding: 12px 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            box-shadow: var(--shadow);
+        }
+        .summary-badge .count { font-size: 1.6rem; font-weight: 800; }
+        .badge-critical { background: #fdedec; color: #a93226; }
+        .badge-warning  { background: #fef9e7; color: #9a7d0a; }
+        .badge-ok       { background: #eafaf1; color: #1e8449; }
+        .badge-unknown  { background: #f2f3f4; color: #566573; }
+
+        /* Results table */
+        #results-section { display: none; }
+        .results-card {
+            background: var(--white);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .results-card-header {
+            padding: 18px 24px;
+            border-bottom: 1px solid var(--light-gray);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .results-card-header h2 { font-size: 1.1rem; color: var(--primary-color); }
+        .results-card-header span { font-size: 0.85rem; color: var(--dark-gray); }
+
+        .listings-table-wrap { overflow-x: auto; }
+        table.listings-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+        }
+        table.listings-table thead th {
+            background: #f4f6f8;
+            padding: 12px 14px;
+            text-align: left;
+            font-weight: 700;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--light-gray);
+            white-space: nowrap;
+        }
+        table.listings-table tbody tr {
+            border-bottom: 1px solid #f0f0f0;
+            transition: background .15s;
+        }
+        table.listings-table tbody tr:hover { background: #fafbfc; }
+        table.listings-table td { padding: 11px 14px; vertical-align: middle; }
+
+        .listing-thumb {
+            width: 48px; height: 48px;
+            object-fit: cover;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+        .listing-title-cell { max-width: 280px; }
+        .listing-title-cell a {
+            color: var(--secondary-color);
+            text-decoration: none;
+            font-weight: 500;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .listing-title-cell a:hover { text-decoration: underline; }
+        .metal-pill {
+            display: inline-block;
+            padding: 2px 9px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+        }
+        .pill-silver { background: #e8ecef; color: #4a5568; }
+        .pill-gold   { background: #fef3cd; color: #856404; }
+        .pill-unknown{ background: #f0f0f0; color: #888; }
+
+        .price-cell { font-weight: 600; white-space: nowrap; }
+        .fair-value-cell { color: var(--dark-gray); white-space: nowrap; }
+        .gap-cell { font-weight: 700; white-space: nowrap; }
+        .gap-positive { color: var(--success-color); }
+        .gap-negative-warn { color: #e67e22; }
+        .gap-negative-crit { color: var(--accent-color); }
+
+        .alert-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .04em;
+            white-space: nowrap;
+        }
+        .alert-critical { background: #fdedec; color: #a93226; }
+        .alert-warning  { background: #fef9e7; color: #9a7d0a; }
+        .alert-ok       { background: #eafaf1; color: #1e8449; }
+        .alert-unknown  { background: #f2f3f4; color: #566573; }
+
+        .suggest-cell { color: var(--success-color); font-weight: 600; white-space: nowrap; }
+        .gain-cell    { color: #1a6fa3; font-weight: 600; white-space: nowrap; }
+
+        /* Empty / loading states */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--medium-gray);
+        }
+        .empty-state .icon { font-size: 3rem; margin-bottom: 12px; }
+        .empty-state p { font-size: 1rem; }
+
+        .spinner {
+            display: inline-block;
+            width: 18px; height: 18px;
+            border: 3px solid rgba(52,152,219,.3);
+            border-top-color: var(--secondary-color);
+            border-radius: 50%;
+            animation: spin .7s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .form-row { flex-direction: column; }
+            .form-group input { min-width: unset; width: 100%; }
+        }
+    </style>
+<script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="container">
+            <div class="logo">🪙 TeckStart <span>Silver Scanner</span></div>
+            <nav>
+                <ul>
+                    <li><a href="/">Dashboard</a></li>
+                    <li><a href="/my-listings">My Listings</a></li>
+                    <li><a href="/settings">Settings</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container dashboard">
+
+        <!-- Page heading -->
+        <div class="checker-header">
+            <h1>📋 My Listings Price Checker</h1>
+            <p>Compare your active eBay listings against today's live spot prices to make sure you're not leaving money on the table.</p>
+        </div>
+
+        <!-- Live spot price strip -->
+        <div class="spot-strip">
+            <div class="spot-badge">
+                <div class="metal-icon">🥈</div>
+                <div class="spot-info">
+                    <div class="label">Silver Spot</div>
+                    <div class="price" id="silver-spot">Loading…</div>
+                    <div class="src"  id="silver-src"></div>
+                </div>
+            </div>
+            <div class="spot-badge">
+                <div class="metal-icon">🥇</div>
+                <div class="spot-info">
+                    <div class="label">Gold Spot</div>
+                    <div class="price" id="gold-spot">Loading…</div>
+                    <div class="src"  id="gold-src"></div>
+                </div>
+            </div>
+            <div class="spot-badge" style="margin-left:auto; background:#fffbf0;">
+                <div class="metal-icon">⚡</div>
+                <div class="spot-info">
+                    <div class="label">Prices as of</div>
+                    <div class="price" id="spot-ts" style="font-size:1rem;">—</div>
+                    <div class="src">Live – refreshed on load</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Check form -->
+        <div class="check-card">
+            <h2>🔍 Check Your Listings</h2>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="seller-username">Your eBay Seller Username</label>
+                    <input
+                        type="text"
+                        id="seller-username"
+                        placeholder="e.g. twinwicksllc"
+                        value="{{ saved_username }}"
+                        autocomplete="off"
+                    >
+                </div>
+                <div class="form-group">
+                    <label for="metal-filter">Metal Filter</label>
+                    <select id="metal-filter">
+                        <option value="all">All Metals</option>
+                        <option value="silver">Silver Only</option>
+                        <option value="gold">Gold Only</option>
+                    </select>
+                </div>
+                <button id="check-btn" onclick="runCheck()">🔍 Check My Listings</button>
+            </div>
+
+            <div id="status-bar"></div>
+        </div>
+
+        <!-- Summary badges -->
+        <div id="summary-row" style="display:none; flex-direction:row; gap:14px; flex-wrap:wrap; margin-bottom:24px;">
+            <div class="summary-badge badge-critical">
+                <div class="count" id="count-critical">0</div>
+                <div>🔴 Underpriced<br><small style="font-weight:400;">Raise price ASAP</small></div>
+            </div>
+            <div class="summary-badge badge-warning">
+                <div class="count" id="count-warning">0</div>
+                <div>🟡 Watch Closely<br><small style="font-weight:400;">Getting close to melt</small></div>
+            </div>
+            <div class="summary-badge badge-ok">
+                <div class="count" id="count-ok">0</div>
+                <div>🟢 Priced OK<br><small style="font-weight:400;">Above fair value</small></div>
+            </div>
+            <div class="summary-badge badge-unknown">
+                <div class="count" id="count-unknown">0</div>
+                <div>⚪ Metal Not Detected<br><small style="font-weight:400;">Title unclear</small></div>
+            </div>
+        </div>
+
+        <!-- Results table -->
+        <div id="results-section">
+            <div class="results-card">
+                <div class="results-card-header">
+                    <h2>Listing Analysis Results</h2>
+                    <span id="results-meta"></span>
+                </div>
+                <div class="listings-table-wrap">
+                    <table class="listings-table">
+                        <thead>
+                            <tr>
+                                <th style="width:56px;"></th>
+                                <th>Listing Title</th>
+                                <th>Metal</th>
+                                <th>Your Price</th>
+                                <th>Detected Oz</th>
+                                <th>Melt Value</th>
+                                <th>Fair Value</th>
+                                <th>Gap&nbsp;%</th>
+                                <th>Alert</th>
+                                <th>Suggested Price</th>
+                                <th>Gain if Repriced</th>
+                            </tr>
+                        </thead>
+                        <tbody id="listings-tbody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+    // ── Spot prices ───────────────────────────────────────────────────────────
+    async function loadSpotPrices() {
+        try {
+            const res  = await fetch('/api/my-listings/spot-prices');
+            const data = await res.json();
+            if (!data.success) return;
+
+            if (data.silver && data.silver.spot_price) {
+                document.getElementById('silver-spot').textContent =
+                    '$' + parseFloat(data.silver.spot_price).toFixed(2) + '/oz';
+                document.getElementById('silver-src').textContent =
+                    data.silver.source || '';
+            }
+            if (data.gold && data.gold.spot_price) {
+                document.getElementById('gold-spot').textContent =
+                    '$' + parseFloat(data.gold.spot_price).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '/oz';
+                document.getElementById('gold-src').textContent =
+                    data.gold.source || '';
+            }
+            // Timestamp from silver (both are fetched simultaneously)
+            const ts = data.silver && data.silver.timestamp
+                ? new Date(data.silver.timestamp).toLocaleTimeString()
+                : '—';
+            document.getElementById('spot-ts').textContent = ts;
+        } catch (e) {
+            console.error('Spot price fetch failed:', e);
+        }
+    }
+
+    // ── Run the check ─────────────────────────────────────────────────────────
+    async function runCheck() {
+        const username    = document.getElementById('seller-username').value.trim();
+        const metalFilter = document.getElementById('metal-filter').value;
+
+        if (!username) {
+            showStatus('error', '⚠️ Please enter your eBay seller username.');
+            return;
+        }
+
+        const btn = document.getElementById('check-btn');
+        btn.disabled = true;
+        btn.textContent = '⏳ Checking…';
+        showStatus('info', '<span class="spinner"></span> &nbsp;Fetching your active listings and comparing against live spot prices…');
+        document.getElementById('summary-row').style.display   = 'none';
+        document.getElementById('results-section').style.display = 'none';
+
+        try {
+            const res  = await fetch('/api/my-listings/check', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    seller_username: username,
+                    metal_filter:    metalFilter
+                })
+            });
+            const data = await res.json();
+
+            if (!data.success) {
+                showStatus('error', '❌ Error: ' + data.error);
+                return;
+            }
+
+            renderResults(data.data);
+            showStatus('success',
+                `✅ Check complete — <strong>${data.data.total_fetched}</strong> listings fetched, ` +
+                `<strong>${data.data.total_analyzed}</strong> analyzed for pricing.`
+            );
+
+        } catch (e) {
+            showStatus('error', '❌ Request failed: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🔍 Check My Listings';
+        }
+    }
+
+    function renderResults(data) {
+        // Summary badges
+        const s = data.summary || {};
+        document.getElementById('count-critical').textContent = s.critical || 0;
+        document.getElementById('count-warning').textContent  = s.warning  || 0;
+        document.getElementById('count-ok').textContent       = s.ok       || 0;
+        document.getElementById('count-unknown').textContent  = s.unknown  || 0;
+
+        const summaryRow = document.getElementById('summary-row');
+        summaryRow.style.display = 'flex';
+
+        // Results meta
+        document.getElementById('results-meta').textContent =
+            `${data.total_analyzed} listings · checked at ` +
+            new Date(data.checked_at).toLocaleTimeString();
+
+        // Build table rows
+        const tbody = document.getElementById('listings-tbody');
+        tbody.innerHTML = '';
+
+        if (!data.listings || data.listings.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="11">
+                <div class="empty-state">
+                    <div class="icon">📭</div>
+                    <p>No matching listings found for <strong>@${data.seller}</strong>.<br>
+                    Make sure the username is correct and you have active listings.</p>
+                </div>
+            </td></tr>`;
+        } else {
+            data.listings.forEach(l => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = buildRow(l);
+                tbody.appendChild(tr);
+            });
+        }
+
+        document.getElementById('results-section').style.display = 'block';
+        document.getElementById('results-section').scrollIntoView({behavior: 'smooth', block: 'start'});
+    }
+
+    function buildRow(l) {
+        const fmt  = v => v != null ? '$' + parseFloat(v).toFixed(2) : '—';
+        const fmtK = v => v != null ? '$' + parseFloat(v).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+        const fmtOz = v => v != null ? parseFloat(v).toFixed(4) + ' oz' : '—';
+
+        // Thumbnail
+        const thumb = l.image_url
+            ? `<img src="${l.image_url}" class="listing-thumb" alt="" onerror="this.style.display='none'">`
+            : '<div style="width:48px;height:48px;background:#f0f0f0;border-radius:6px;"></div>';
+
+        // Metal pill
+        const metalMap = {silver:'pill-silver', gold:'pill-gold', unknown:'pill-unknown'};
+        const metalPill = `<span class="metal-pill ${metalMap[l.metal_type]||'pill-unknown'}">${l.metal_type}</span>`;
+
+        // Alert badge
+        const alertMap = {
+            critical: ['alert-critical', '🔴 Underpriced'],
+            warning:  ['alert-warning',  '🟡 Watch Closely'],
+            ok:       ['alert-ok',       '🟢 OK'],
+            unknown:  ['alert-unknown',  '⚪ Unknown'],
+        };
+        const [alertCls, alertTxt] = alertMap[l.alert] || alertMap.unknown;
+        const alertBadge = `<span class="alert-badge ${alertCls}">${alertTxt}</span>`;
+
+        // Gap % colour
+        let gapHtml = '—';
+        if (l.gap_pct != null) {
+            let cls = 'gap-positive';
+            if (l.gap_pct < -15) cls = 'gap-negative-crit';
+            else if (l.gap_pct < -5) cls = 'gap-negative-warn';
+            const sign = l.gap_pct >= 0 ? '+' : '';
+            gapHtml = `<span class="${cls}">${sign}${l.gap_pct.toFixed(1)}%</span>`;
+        }
+
+        // Suggested price & gain
+        const suggestHtml = l.suggested_price != null
+            ? `<span class="suggest-cell">${fmt(l.suggested_price)}</span>`
+            : '—';
+        const gainHtml = l.gain_if_repriced != null && l.gain_if_repriced > 0
+            ? `<span class="gain-cell">+${fmt(l.gain_if_repriced)}</span>`
+            : (l.gain_if_repriced != null ? `<span style="color:#888">${fmt(l.gain_if_repriced)}</span>` : '—');
+
+        return `
+            <td>${thumb}</td>
+            <td class="listing-title-cell"><a href="${l.item_url}" target="_blank" rel="noopener">${escHtml(l.title)}</a></td>
+            <td>${metalPill}</td>
+            <td class="price-cell">${fmt(l.your_price)}</td>
+            <td>${fmtOz(l.detected_oz)}</td>
+            <td class="fair-value-cell">${fmt(l.melt_value)}</td>
+            <td class="fair-value-cell">${fmt(l.fair_value)}</td>
+            <td class="gap-cell">${gapHtml}</td>
+            <td>${alertBadge}</td>
+            <td>${suggestHtml}</td>
+            <td>${gainHtml}</td>
+        `;
+    }
+
+    function escHtml(s) {
+        return String(s)
+            .replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>')
+            .replace(/"/g,'"').replace(/'/g,'&#39;');
+    }
+
+    function showStatus(type, html) {
+        const bar = document.getElementById('status-bar');
+        bar.className = type;
+        bar.innerHTML = html;
+        bar.style.display = 'flex';
+    }
+
+    // Also allow Enter key in username field
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSpotPrices();
+        document.getElementById('seller-username').addEventListener('keydown', e => {
+            if (e.key === 'Enter') runCheck();
+        });
+    });
+    </script>
+</body>
+</html>
