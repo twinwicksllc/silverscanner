@@ -295,18 +295,37 @@ class eBayAPI:
         if Config.EBAY_USE_SANDBOX:
             logger.warning("Using eBay SANDBOX environment - real seller listings will NOT be found!")
 
-        # Focused keyword set - top 10 most effective for silver/gold bullion
+        # Broader keyword set to match more listing titles
+        # Include both generic and specific terms that appear in actual listings
         SELLER_SEARCH_KEYWORDS = [
-            'silver coin',
-            'gold coin',
+            # Generic terms
+            'gold',
+            'silver',
+            # Specific coin types
+            'gold eagle',
+            'silver eagle',
+            'gold buffalo',
+            'gold maple',
+            'silver maple',
+            'krugerrand',
+            # US coins
+            'morgan dollar',
+            'peace dollar',
+            'silver dollar',
+            'liberty head',
+            'indian head',
+            'walking liberty',
+            'franklin half',
+            'kennedy half',
+            'mercury dime',
+            'junk silver',
+            '90% silver',
+            # Bullion
             'silver bar',
             'gold bar',
             'silver round',
-            'silver eagle',
-            'gold eagle',
-            'morgan dollar',
-            'silver dollar',
-            'junk silver',
+            'gold round',
+            'bullion',
         ]
 
         search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
@@ -352,9 +371,9 @@ class eBayAPI:
                 logger.error(f"Search failed for keyword '{keyword}': {e}")
                 return []
         
-        # Use ThreadPoolExecutor for concurrent API calls (5 workers = 5 parallel requests)
+        # Use ThreadPoolExecutor for concurrent API calls (8 workers for faster completion)
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(search_keyword, kw): kw for kw in SELLER_SEARCH_KEYWORDS}
                 
                 for future in concurrent.futures.as_completed(futures, timeout=45):
