@@ -386,6 +386,12 @@ class eBayAPI:
         and filtering client-side to the target seller.
         Uses concurrent requests to stay within timeout limits.
         """
+        search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
+        all_items = {}
+        total_results_checked = 0
+
+        import concurrent.futures
+
         _SILVER_KEYWORDS = [
             'silver', 'silver eagle', 'silver maple', 'morgan dollar',
             'peace dollar', 'silver dollar', 'liberty head', 'indian head',
@@ -404,12 +410,8 @@ class eBayAPI:
         else:
             SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS + _GOLD_KEYWORDS
 
-        search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
-        all_items = {}
-
-        import concurrent.futures
-
-        def search_keyword(keyword: str) -> List[tuple]:
+        def search_keyword(keyword: str) -> tuple:
+            """Search by keyword and filter results by seller. Returns (count, matches)"""
             try:
                 params = {
                     'q': keyword,
@@ -419,26 +421,38 @@ class eBayAPI:
                 }
                 response = requests.get(search_url, headers=self.headers, params=params, timeout=15)
                 if response.status_code != 200:
-                    return []
+                    logger.debug(f"Keyword '{keyword}': HTTP {response.status_code}")
+                    return (0, [])
+                
                 data = response.json()
                 items = data.get('itemSummaries', [])
-                return [
+                total_count = data.get('total', len(items))
+                
+                # Filter by seller username (case-insensitive)
+                seller_items = [
                     (item.get('itemId'), item)
                     for item in items
                     if item.get('seller', {}).get('username', '').lower() == seller_username.lower()
                 ]
+                
+                logger.debug(f"Keyword '{keyword}': {len(seller_items)}/{total_count} items matched seller '{seller_username}'")
+                return (total_count, seller_items)
             except Exception as e:
                 logger.error(f"Keyword search '{keyword}' failed: {e}")
-                return []
+                return (0, [])
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(search_keyword, kw): kw for kw in SELLER_SEARCH_KEYWORDS}
                 for future in concurrent.futures.as_completed(futures, timeout=45):
                     try:
-                        for item_id, item in future.result():
+                        total_count, seller_items = future.result()
+                        total_results_checked += total_count
+                        
+                        for item_id, item in seller_items:
                             if item_id and item_id not in all_items:
                                 all_items[item_id] = item
+                        
                         if len(all_items) >= max_results:
                             break
                     except Exception as e:
@@ -447,7 +461,17 @@ class eBayAPI:
             logger.warning("Keyword search timeout, returning partial results")
 
         result = list(all_items.values())[:max_results]
-        logger.info(f"Keyword fallback found {len(result)} items for seller '{seller_username}'")
+        
+        # Enhanced logging for debugging
+        if not result:
+            logger.warning(
+                f"Keyword fallback found 0 items for seller '{seller_username}' "
+                f"(searched {len(SELLER_SEARCH_KEYWORDS)} keywords, checked {total_results_checked} total API results). "
+                f"This may indicate: (1) seller not found, (2) listings don't contain searched keywords, "
+                f"or (3) using eBay SANDBOX mode (no real listings available)."
+            )
+        else:
+            logger.info(f"Keyword fallback found {len(result)} items for seller '{seller_username}'")
         return result
 
     def test_connection(self) -> bool:
