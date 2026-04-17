@@ -388,7 +388,8 @@ class eBayAPI:
         """
         search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
         all_items = {}
-        total_results_checked = 0
+        total_api_results = 0  # Total items found across all keywords
+        seller_item_counts = []  # Track (keyword, total_found, seller_matches) for reporting
 
         import concurrent.futures
 
@@ -405,13 +406,16 @@ class eBayAPI:
 
         if metal_filter == 'silver':
             SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS
+            logger.info(f"Keyword fallback: searching {len(SELLER_SEARCH_KEYWORDS)} silver keywords for seller '{seller_username}'...")
         elif metal_filter == 'gold':
             SELLER_SEARCH_KEYWORDS = _GOLD_KEYWORDS
+            logger.info(f"Keyword fallback: searching {len(SELLER_SEARCH_KEYWORDS)} gold keywords for seller '{seller_username}'...")
         else:
             SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS + _GOLD_KEYWORDS
+            logger.info(f"Keyword fallback: searching {len(SELLER_SEARCH_KEYWORDS)} silver+gold keywords for seller '{seller_username}'...")
 
         def search_keyword(keyword: str) -> tuple:
-            """Search by keyword and filter results by seller. Returns (count, matches)"""
+            """Search by keyword and filter results by seller. Returns (keyword, total_found, seller_items)"""
             try:
                 params = {
                     'q': keyword,
@@ -421,8 +425,8 @@ class eBayAPI:
                 }
                 response = requests.get(search_url, headers=self.headers, params=params, timeout=15)
                 if response.status_code != 200:
-                    logger.debug(f"Keyword '{keyword}': HTTP {response.status_code}")
-                    return (0, [])
+                    logger.warning(f"Keyword '{keyword}': HTTP {response.status_code} (skipped)")
+                    return (keyword, 0, [])
                 
                 data = response.json()
                 items = data.get('itemSummaries', [])
@@ -435,19 +439,25 @@ class eBayAPI:
                     if item.get('seller', {}).get('username', '').lower() == seller_username.lower()
                 ]
                 
-                logger.debug(f"Keyword '{keyword}': {len(seller_items)}/{total_count} items matched seller '{seller_username}'")
-                return (total_count, seller_items)
+                # Log results for this keyword (INFO level so it appears in production logs)
+                if seller_items:
+                    logger.info(f"Keyword '{keyword}': found {len(seller_items)}/{total_count} items from seller '{seller_username}'")
+                else:
+                    logger.info(f"Keyword '{keyword}': found 0/{total_count} items from seller '{seller_username}'")
+                
+                return (keyword, total_count, seller_items)
             except Exception as e:
                 logger.error(f"Keyword search '{keyword}' failed: {e}")
-                return (0, [])
+                return (keyword, 0, [])
 
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(search_keyword, kw): kw for kw in SELLER_SEARCH_KEYWORDS}
                 for future in concurrent.futures.as_completed(futures, timeout=45):
                     try:
-                        total_count, seller_items = future.result()
-                        total_results_checked += total_count
+                        keyword, total_count, seller_items = future.result()
+                        total_api_results += total_count
+                        seller_item_counts.append((keyword, total_count, len(seller_items)))
                         
                         for item_id, item in seller_items:
                             if item_id and item_id not in all_items:
@@ -462,16 +472,24 @@ class eBayAPI:
 
         result = list(all_items.values())[:max_results]
         
-        # Enhanced logging for debugging
+        # Detailed summary logging
+        seller_matches = sum(count for _, _, count in seller_item_counts)
+        
         if not result:
+            # Log which keywords were tried
+            tried_keywords = [kw for kw, _, _ in seller_item_counts if kw]
             logger.warning(
-                f"Keyword fallback found 0 items for seller '{seller_username}' "
-                f"(searched {len(SELLER_SEARCH_KEYWORDS)} keywords, checked {total_results_checked} total API results). "
-                f"This may indicate: (1) seller not found, (2) listings don't contain searched keywords, "
-                f"or (3) using eBay SANDBOX mode (no real listings available)."
+                f"Keyword fallback found 0 items for seller '{seller_username}'. "
+                f"Searched {len(SELLER_SEARCH_KEYWORDS)} keywords ({metal_filter} filter), "
+                f"found {total_api_results} total eBay listings, "
+                f"but 0 from this seller. "
+                f"Possible causes: seller username incorrect, seller has no active listings, "
+                f"or listings use keywords not in our search terms."
             )
         else:
-            logger.info(f"Keyword fallback found {len(result)} items for seller '{seller_username}'")
+            logger.info(f"Keyword fallback found {len(result)} items for seller '{seller_username}' "
+                       f"(searched {len(SELLER_SEARCH_KEYWORDS)} keywords, checked {total_api_results} total API results)")
+        
         return result
 
     def test_connection(self) -> bool:
