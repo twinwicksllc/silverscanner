@@ -302,29 +302,40 @@ class eBayAPI:
 
         logger.info(f"Fetching listings for seller '{seller_username}' using sellers filter (filter={metal_filter})...")
 
-        # eBay Browse API requires a real keyword in 'q' — a bare space no longer works
-        # (API returns HTTP 200 with 0 results instead of an error).
+        # eBay Browse API requires a real keyword in 'q'.
         # Scope the query to the requested metal so results are more relevant.
+        # NOTE: For 'all', use a single broad term — multi-word queries use AND logic and
+        # would exclude listings that don't contain every word.
         _METAL_QUERIES = {
-            'silver': 'silver coin bullion round bar dollar half dime quarter',
-            'gold':   'gold coin bullion round bar eagle buffalo maple',
-            'all':    'silver gold coin bullion round bar',
+            'silver': 'silver',
+            'gold':   'gold',
+            'all':    'coin',   # broad single term; sellers filter narrows results to this seller
         }
-        BROAD_METALS_QUERY = _METAL_QUERIES.get(metal_filter, _METAL_QUERIES['all'])
+        q_term = _METAL_QUERIES.get(metal_filter, 'coin')
+
+        from urllib.parse import urlencode
 
         try:
             while len(all_items) < max_results:
-                params = {
-                    'q': BROAD_METALS_QUERY,
-                    'limit': page_size,
-                    'offset': offset,
-                    # CRITICAL: must include both FIXED_PRICE and AUCTION or API returns 0 results
-                    'filter': f'sellers:{{{seller_username}}},buyingOptions:{{FIXED_PRICE|AUCTION}}',
+                # Build standard params (q, limit, offset, fieldgroups) via urlencode so they
+                # are properly encoded, then append the filter string RAW so that the curly
+                # braces and pipe characters are NOT percent-encoded.  eBay's API rejects the
+                # encoded form (%7B…%7D) and returns 0 results silently.
+                base_params = {
+                    'q':          q_term,
+                    'limit':      page_size,
+                    'offset':     offset,
                     'fieldgroups': 'EXTENDED',
                 }
+                filter_str = (
+                    f'sellers:{{{seller_username}}},'
+                    f'buyingOptions:{{FIXED_PRICE|AUCTION}}'
+                )
+                full_url = f"{search_url}?{urlencode(base_params)}&filter={filter_str}"
 
                 logger.info(f"Fetching page offset={offset} for seller '{seller_username}'")
-                response = requests.get(search_url, headers=self.headers, params=params, timeout=20)
+                logger.debug(f"Request URL: {full_url}")
+                response = requests.get(full_url, headers=self.headers, timeout=20)
 
                 if response.status_code == 429:
                     retry_after = int(response.headers.get('Retry-After', 10))
@@ -333,25 +344,30 @@ class eBayAPI:
                     continue
 
                 if response.status_code != 200:
-                    logger.warning(f"sellers filter returned {response.status_code}: {response.text[:200]}")
-                    # Fall back to keyword search if sellers filter fails
+                    logger.warning(
+                        f"sellers filter returned HTTP {response.status_code}: {response.text[:400]}"
+                    )
                     logger.info("Falling back to keyword-based search...")
                     return self._get_seller_listings_by_keywords(seller_username, max_results, metal_filter)
 
                 data = response.json()
                 items = data.get('itemSummaries', [])
                 total = data.get('total', 0)
+                warnings = data.get('warnings', [])
+
+                if warnings:
+                    logger.warning(f"eBay API warnings on sellers filter: {warnings}")
 
                 logger.info(f"Page offset={offset}: got {len(items)} items (total available: {total})")
 
                 # If the first page comes back empty the sellers filter returned nothing —
-                # fall back to the keyword-based approach rather than silently returning [].
+                # log the full response body and fall back to keyword-based search.
                 if not items and offset == 0:
-                    logger.info(
-                        "sellers filter returned 0 results on first page "
-                        "(API may have changed or username not found); "
-                        "falling back to keyword-based search..."
+                    logger.warning(
+                        f"sellers filter returned 0 results (total=0). "
+                        f"Raw response: {response.text[:600]}"
                     )
+                    logger.info("Falling back to keyword-based search...")
                     return self._get_seller_listings_by_keywords(seller_username, max_results, metal_filter)
 
                 if not items:
@@ -382,114 +398,103 @@ class eBayAPI:
     def _get_seller_listings_by_keywords(self, seller_username: str, max_results: int = 200,
                                           metal_filter: str = 'all') -> List[Dict]:
         """
-        Fallback: fetch seller listings by searching common silver/gold keywords
-        and filtering client-side to the target seller.
-        Uses concurrent requests to stay within timeout limits.
+        Fallback: run multiple sellers-filtered searches, each with a single keyword,
+        to work around the fact that eBay's sellers filter requires a non-empty `q`.
+        This is more reliable than a global keyword search because we're always filtering
+        to this specific seller — we just vary the keyword to catch all listing types.
         """
-        search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
-        all_items = {}
-        total_api_results = 0  # Total items found across all keywords
-        seller_item_counts = []  # Track (keyword, total_found, seller_matches) for reporting
-
+        from urllib.parse import urlencode
         import concurrent.futures
 
+        search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
+        all_items = {}
+
         _SILVER_KEYWORDS = [
-            'silver', 'silver eagle', 'silver maple', 'morgan dollar',
-            'peace dollar', 'silver dollar', 'liberty head', 'indian head',
-            'walking liberty', 'franklin half', 'kennedy half', 'mercury dime',
-            'junk silver', '90% silver', 'silver bar', 'silver round', 'silver bullion',
+            'silver', 'gold', 'coin', 'bullion', 'morgan', 'peace', 'eagle',
+            'liberty', 'dollar', 'half', 'dime', 'quarter', 'bar', 'round',
         ]
         _GOLD_KEYWORDS = [
-            'gold', 'gold eagle', 'gold buffalo', 'gold maple', 'krugerrand',
-            'gold bar', 'gold round', 'gold bullion',
+            'gold', 'silver', 'coin', 'bullion', 'eagle', 'buffalo',
+            'maple', 'sovereign', 'bar', 'round',
         ]
 
         if metal_filter == 'silver':
-            SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS
-            logger.info(f"Keyword fallback: searching {len(SELLER_SEARCH_KEYWORDS)} silver keywords for seller '{seller_username}'...")
+            keywords = _SILVER_KEYWORDS
         elif metal_filter == 'gold':
-            SELLER_SEARCH_KEYWORDS = _GOLD_KEYWORDS
-            logger.info(f"Keyword fallback: searching {len(SELLER_SEARCH_KEYWORDS)} gold keywords for seller '{seller_username}'...")
+            keywords = _GOLD_KEYWORDS
         else:
-            SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS + _GOLD_KEYWORDS
-            logger.info(f"Keyword fallback: searching {len(SELLER_SEARCH_KEYWORDS)} silver+gold keywords for seller '{seller_username}'...")
+            # For 'all', use a combined deduplicated list
+            combined = _SILVER_KEYWORDS + [k for k in _GOLD_KEYWORDS if k not in _SILVER_KEYWORDS]
+            keywords = combined
 
-        def search_keyword(keyword: str) -> tuple:
-            """Search by keyword and filter results by seller. Returns (keyword, total_found, seller_items)"""
+        logger.info(
+            f"Keyword fallback: trying {len(keywords)} sellers-filter queries "
+            f"for '{seller_username}' (filter={metal_filter})..."
+        )
+
+        def search_with_seller_filter(keyword: str) -> List[tuple]:
+            """Search using sellers filter + one keyword. Returns list of (item_id, item)."""
             try:
-                params = {
-                    'q': keyword,
-                    'limit': 100,
-                    'filter': 'buyingOptions:{FIXED_PRICE|AUCTION}',
+                base_params = {
+                    'q':           keyword,
+                    'limit':       100,
+                    'offset':      0,
                     'fieldgroups': 'EXTENDED',
                 }
-                response = requests.get(search_url, headers=self.headers, params=params, timeout=15)
+                filter_str = (
+                    f'sellers:{{{seller_username}}},'
+                    f'buyingOptions:{{FIXED_PRICE|AUCTION}}'
+                )
+                full_url = f"{search_url}?{urlencode(base_params)}&filter={filter_str}"
+                response = requests.get(full_url, headers=self.headers, timeout=15)
+
                 if response.status_code != 200:
-                    logger.warning(f"Keyword '{keyword}': HTTP {response.status_code} (skipped)")
-                    return (keyword, 0, [])
-                
+                    logger.debug(f"Keyword '{keyword}' sellers-filter: HTTP {response.status_code}")
+                    return []
+
                 data = response.json()
                 items = data.get('itemSummaries', [])
-                total_count = data.get('total', len(items))
-                
-                # Filter by seller username (case-insensitive)
-                seller_items = [
-                    (item.get('itemId'), item)
-                    for item in items
-                    if item.get('seller', {}).get('username', '').lower() == seller_username.lower()
-                ]
-                
-                # Log results for this keyword (INFO level so it appears in production logs)
-                if seller_items:
-                    logger.info(f"Keyword '{keyword}': found {len(seller_items)}/{total_count} items from seller '{seller_username}'")
-                else:
-                    logger.info(f"Keyword '{keyword}': found 0/{total_count} items from seller '{seller_username}'")
-                
-                return (keyword, total_count, seller_items)
+                total = data.get('total', 0)
+
+                if items:
+                    logger.info(
+                        f"Keyword '{keyword}' sellers-filter: {len(items)}/{total} items "
+                        f"(total available for this seller+keyword)"
+                    )
+                return [(item.get('itemId'), item) for item in items if item.get('itemId')]
+
             except Exception as e:
-                logger.error(f"Keyword search '{keyword}' failed: {e}")
-                return (keyword, 0, [])
+                logger.error(f"sellers-filter keyword '{keyword}' failed: {e}")
+                return []
 
         try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                futures = {executor.submit(search_keyword, kw): kw for kw in SELLER_SEARCH_KEYWORDS}
-                for future in concurrent.futures.as_completed(futures, timeout=45):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=6) as executor:
+                futures = {executor.submit(search_with_seller_filter, kw): kw for kw in keywords}
+                for future in concurrent.futures.as_completed(futures, timeout=60):
                     try:
-                        keyword, total_count, seller_items = future.result()
-                        total_api_results += total_count
-                        seller_item_counts.append((keyword, total_count, len(seller_items)))
-                        
-                        for item_id, item in seller_items:
-                            if item_id and item_id not in all_items:
+                        for item_id, item in future.result():
+                            if item_id not in all_items:
                                 all_items[item_id] = item
-                        
                         if len(all_items) >= max_results:
                             break
                     except Exception as e:
-                        logger.error(f"Error processing keyword result: {e}")
+                        logger.error(f"Error processing sellers-filter keyword result: {e}")
         except concurrent.futures.TimeoutError:
-            logger.warning("Keyword search timeout, returning partial results")
+            logger.warning("Keyword fallback timeout — returning partial results")
 
         result = list(all_items.values())[:max_results]
-        
-        # Detailed summary logging
-        seller_matches = sum(count for _, _, count in seller_item_counts)
-        
-        if not result:
-            # Log which keywords were tried
-            tried_keywords = [kw for kw, _, _ in seller_item_counts if kw]
-            logger.warning(
-                f"Keyword fallback found 0 items for seller '{seller_username}'. "
-                f"Searched {len(SELLER_SEARCH_KEYWORDS)} keywords ({metal_filter} filter), "
-                f"found {total_api_results} total eBay listings, "
-                f"but 0 from this seller. "
-                f"Possible causes: seller username incorrect, seller has no active listings, "
-                f"or listings use keywords not in our search terms."
+
+        if result:
+            logger.info(
+                f"Keyword fallback found {len(result)} items for seller '{seller_username}'"
             )
         else:
-            logger.info(f"Keyword fallback found {len(result)} items for seller '{seller_username}' "
-                       f"(searched {len(SELLER_SEARCH_KEYWORDS)} keywords, checked {total_api_results} total API results)")
-        
+            logger.warning(
+                f"Keyword fallback found 0 items for seller '{seller_username}' "
+                f"after trying {len(keywords)} keyword+sellers-filter combinations. "
+                f"Check that the username is correct and the seller has active listings."
+            )
+
         return result
 
     def test_connection(self) -> bool:
