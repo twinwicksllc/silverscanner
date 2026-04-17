@@ -85,7 +85,9 @@ class SellerChecker:
                     f"Gold: ${spot_prices.get('gold', 0):.2f}/oz")
 
         # 2. Fetch all active seller listings from eBay
-        raw_items = self.ebay_api.get_seller_listings(seller_username, max_results=max_listings)
+        raw_items = self.ebay_api.get_seller_listings(
+            seller_username, max_results=max_listings, metal_filter=metal_filter
+        )
         
         # Check if we're using sandbox (which won't have real data)
         from config import Config

@@ -269,19 +269,20 @@ class eBayAPI:
             logger.error(f"Error extracting item details: {e}")
             return {}
     
-    def get_seller_listings(self, seller_username: str, max_results: int = 200) -> List[Dict]:
+    def get_seller_listings(self, seller_username: str, max_results: int = 200,
+                             metal_filter: str = 'all') -> List[Dict]:
         """
         Fetch active listings for a specific eBay seller using the Browse API
         sellers:{username} filter with pagination.
 
         Key insight (from eBay community): The sellers:{username} filter DOES work,
         but you must explicitly include buyingOptions:{FIXED_PRICE|AUCTION} otherwise
-        the API returns 0 results. A space character " " can be used as the q parameter
-        to match all items.
+        the API returns 0 results.
 
         Args:
             seller_username: The eBay seller's username
             max_results: Maximum number of listings to retrieve
+            metal_filter: 'silver', 'gold', or 'all' — scopes the search query
 
         Returns:
             List of raw item dictionaries from eBay API
@@ -299,12 +300,22 @@ class eBayAPI:
         offset = 0
         page_size = 100  # API max per call
 
-        logger.info(f"Fetching listings for seller '{seller_username}' using sellers filter...")
+        logger.info(f"Fetching listings for seller '{seller_username}' using sellers filter (filter={metal_filter})...")
+
+        # eBay Browse API requires a real keyword in 'q' — a bare space no longer works
+        # (API returns HTTP 200 with 0 results instead of an error).
+        # Scope the query to the requested metal so results are more relevant.
+        _METAL_QUERIES = {
+            'silver': 'silver coin bullion round bar dollar half dime quarter',
+            'gold':   'gold coin bullion round bar eagle buffalo maple',
+            'all':    'silver gold coin bullion round bar',
+        }
+        BROAD_METALS_QUERY = _METAL_QUERIES.get(metal_filter, _METAL_QUERIES['all'])
 
         try:
             while len(all_items) < max_results:
                 params = {
-                    'q': ' ',  # space = match all items (required by API)
+                    'q': BROAD_METALS_QUERY,
                     'limit': page_size,
                     'offset': offset,
                     # CRITICAL: must include both FIXED_PRICE and AUCTION or API returns 0 results
@@ -325,13 +336,23 @@ class eBayAPI:
                     logger.warning(f"sellers filter returned {response.status_code}: {response.text[:200]}")
                     # Fall back to keyword search if sellers filter fails
                     logger.info("Falling back to keyword-based search...")
-                    return self._get_seller_listings_by_keywords(seller_username, max_results)
+                    return self._get_seller_listings_by_keywords(seller_username, max_results, metal_filter)
 
                 data = response.json()
                 items = data.get('itemSummaries', [])
                 total = data.get('total', 0)
 
                 logger.info(f"Page offset={offset}: got {len(items)} items (total available: {total})")
+
+                # If the first page comes back empty the sellers filter returned nothing —
+                # fall back to the keyword-based approach rather than silently returning [].
+                if not items and offset == 0:
+                    logger.info(
+                        "sellers filter returned 0 results on first page "
+                        "(API may have changed or username not found); "
+                        "falling back to keyword-based search..."
+                    )
+                    return self._get_seller_listings_by_keywords(seller_username, max_results, metal_filter)
 
                 if not items:
                     break
@@ -353,25 +374,35 @@ class eBayAPI:
         except requests.exceptions.RequestException as e:
             logger.error(f"sellers filter request failed: {e}")
             logger.info("Falling back to keyword-based search...")
-            return self._get_seller_listings_by_keywords(seller_username, max_results)
+            return self._get_seller_listings_by_keywords(seller_username, max_results, metal_filter)
 
         logger.info(f"Total seller listings fetched: {len(all_items)}")
         return all_items[:max_results]
 
-    def _get_seller_listings_by_keywords(self, seller_username: str, max_results: int = 200) -> List[Dict]:
+    def _get_seller_listings_by_keywords(self, seller_username: str, max_results: int = 200,
+                                          metal_filter: str = 'all') -> List[Dict]:
         """
         Fallback: fetch seller listings by searching common silver/gold keywords
         and filtering client-side to the target seller.
         Uses concurrent requests to stay within timeout limits.
         """
-        SELLER_SEARCH_KEYWORDS = [
-            'gold', 'silver', 'gold eagle', 'silver eagle', 'gold buffalo',
-            'gold maple', 'silver maple', 'krugerrand', 'morgan dollar',
+        _SILVER_KEYWORDS = [
+            'silver', 'silver eagle', 'silver maple', 'morgan dollar',
             'peace dollar', 'silver dollar', 'liberty head', 'indian head',
             'walking liberty', 'franklin half', 'kennedy half', 'mercury dime',
-            'junk silver', '90% silver', 'silver bar', 'gold bar',
-            'silver round', 'gold round', 'bullion',
+            'junk silver', '90% silver', 'silver bar', 'silver round', 'silver bullion',
         ]
+        _GOLD_KEYWORDS = [
+            'gold', 'gold eagle', 'gold buffalo', 'gold maple', 'krugerrand',
+            'gold bar', 'gold round', 'gold bullion',
+        ]
+
+        if metal_filter == 'silver':
+            SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS
+        elif metal_filter == 'gold':
+            SELLER_SEARCH_KEYWORDS = _GOLD_KEYWORDS
+        else:
+            SELLER_SEARCH_KEYWORDS = _SILVER_KEYWORDS + _GOLD_KEYWORDS
 
         search_url = f"{Config.EBAY_API_BASE_URL}/item_summary/search"
         all_items = {}
