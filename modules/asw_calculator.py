@@ -62,6 +62,36 @@ class ASWCalculator:
                 'asw': 0.36169,
                 'name': 'Franklin Half Dollar'
             },
+            'washington quarter pre-1965': {
+                'patterns': [
+                    # Pre-1965 specific patterns (highest priority)
+                    r'(?:pre-?19)?64\s+(?:washington\s+)?quarter',
+                    r'washington\s+quarter\s+(?:pre-?19)?64',
+                    r'pre-?1965\s+(?:washington\s+)?quarter',
+                    r'washington\s+quarter\s+pre-?1965',
+                    r'90%\s+(?:washington\s+)?quarter',
+                    r'(\s|^)(?:pre-?64|pre-?1964|pre-?1965).*washington.*quarter',
+                    # Generic pattern (only if NOT clad/post-65) - lowest priority
+                    r'(?!.*clad)(?!.*post-?19?6[5-9])(?!.*1[9-9][7-9]\d)washington\s+quarter',
+                ],
+                'asw': 0.18,
+                'name': 'Washington Quarter (Pre-1965, 90% Silver)'
+            },
+            'washington quarter 1965-1970': {
+                'patterns': [
+                    r'1965-?1970\s+(?:washington\s+)?quarter',
+                    r'(?:washington\s+)?quarter\s+1965-?1970',
+                    r'40%\s+(?:washington\s+)?quarter',
+                    r'1965\s+washington',
+                    r'1966\s+washington',
+                    r'1967\s+washington',
+                    r'1968\s+washington',
+                    r'1969\s+washington',
+                    r'1970\s+washington'
+                ],
+                'asw': 0.07234,
+                'name': 'Washington Quarter (1965-1970, 40% Silver)'
+            },
             'peace dollar': {
                 'patterns': [
                     r'peace\s+dollar',
@@ -154,15 +184,15 @@ class ASWCalculator:
             return float(val)
 
         patterns = [
-            # Troy oz (handling fractions like 1/10)
-            (r'\b(\d+(?:/\d+)?(?:\.\d+)?)\s*(?:troy\s+)?oz(?:s|troy)?', 'troy_oz', 1.0),
-            (r'\b(\d+(?:/\d+)?(?:\.\d+)?)\s*(?:troy\s+)?ounce', 'troy_oz', 1.0),
-            # Grams
-            (r'\b(\d+(?:\.\d+)?)\s*g\b(?!rain)', 'grams', 1/31.1035),
-            (r'\b(\d+(?:\.\d+)?)\s*gram(?:s)?', 'grams', 1/31.1035),
-            # Kilos
-            (r'\b(\d+(?:\.\d+)?)\s*kg\b', 'kilos', 32.1507),
-            (r'\b(\d+(?:\.\d+)?)\s*kilo(?:gram)?s?', 'kilos', 32.1507),
+            # Troy oz (handling fractions like 1/10 and leading decimals like .25)
+            (r'((?:\d+(?:/\d+)?(?:\.\d+)?|\.\d+))\s*(?:troy\s+)?oz(?:s|troy)?', 'troy_oz', 1.0),
+            (r'((?:\d+(?:/\d+)?(?:\.\d+)?|\.\d+))\s*(?:troy\s+)?ounce', 'troy_oz', 1.0),
+            # Grams (handle leading decimals like .5g)
+            (r'((?:\d+(?:\.\d+)?|\.\d+))\s*g\b(?!rain)', 'grams', 1/31.1035),
+            (r'((?:\d+(?:\.\d+)?|\.\d+))\s*gram(?:s)?', 'grams', 1/31.1035),
+            # Kilos (handle leading decimals like .5kg)
+            (r'((?:\d+(?:\.\d+)?|\.\d+))\s*kg\b', 'kilos', 32.1507),
+            (r'((?:\d+(?:\.\d+)?|\.\d+))\s*kilo(?:gram)?s?', 'kilos', 32.1507),
         ]
         
         # Pre-filter: if text contains "copper", skip weight extraction for silver
@@ -309,20 +339,22 @@ class ASWCalculator:
         text_to_search = re.sub(r'\b(0?\.999+)\b', ' PURITY ', text_to_search)
         text_to_search = re.sub(r'\b(999)\b', ' PURITY ', text_to_search)
         
+        # Check for explicit "lot of X" first (highest confidence)
+        match = re.search(r'lot\s+of\s+(\d+)', text_to_search)
+        if match:
+            return int(match.group(1))
+        
         patterns = [
-            r'lot\s+of\s+(\d+)',
             r'set\s+of\s+(\d+)',
             r'(\d+)\s*(?:pc|pcs|pieces)',
             r'(\d+)\s+x\s+(?!1\s*g)', # Exclude "5 x 1 g" from being quantity 5
             r'(\d+)\s*count',
             r'^(\d+)\s+(?:lot|set)', # Starts with number
+            # Coin-specific quantity patterns
+            r'^(\d+)\s+(?:pre-)?(?:64|1964|1965|washington|barber|liberty|morgan|peace|eagle|dollar|dime|half|quarter)', # Start of title: "6 quarters", "6 pre-64 washington"
+            r'(\d+)\s+(?:pre-)?(?:64|1964|1965)\s+(?:washington|barber|liberty|morgan|peace|silver)', # "6 pre-64 washington"
+            r'(\d+)\s+(?:washington|barber|liberty|morgan|peace|walking)\s+(?:dollar|half|quarter|dime)',  # "6 washington quarters"
         ]
-        
-        # More conservative check: avoid generic numbers followed by "coins" if they are large
-        # unless preceded by "lot of" etc.
-        match = re.search(r'lot\s+of\s+(\d+)', text_to_search)
-        if match:
-            return int(match.group(1))
 
         for pattern in patterns:
             matches = re.findall(pattern, text_to_search)
@@ -330,7 +362,7 @@ class ASWCalculator:
                 try:
                     quantity = int(match)
                     if 1 < quantity <= 500:  # More conservative top end
-                        logger.debug(f"Extracted quantity: {quantity}")
+                        logger.debug(f"Extracted quantity: {quantity} from pattern: {pattern}")
                         return quantity
                 except (ValueError, TypeError):
                     continue

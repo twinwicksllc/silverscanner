@@ -141,12 +141,14 @@ class Config:
         'barber half': 0.36169,
         'franklin half': 0.36169,
         'kennedy half 1964': 0.36169,
+        'washington quarter pre-1965': 0.18,
         'peace dollar': 0.77344,
         'morgan dollar': 0.77344,
         'eisenhower dollar 1971-1976': 0.3161,
         
         # 40% Silver Coins
         'kennedy half 1965-1970': 0.1479,
+        'washington quarter 1965-1970': 0.07234,
         
         # Junk Silver (90% silver per $1 face value)
         'junk silver': 0.7234,  # per $1 face value
