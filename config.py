@@ -100,10 +100,10 @@ class Config:
     GOLD_BULLION_KEYWORDS = ['gold bullion', 'gold bars', 'gold rounds']
 
     # Keywords to exclude from searches (jewelry, replicas, etc.)
+    # Note: 'bezel', 'mount' etc removed so we don't skip legitimate coin jewelry listings
     SEARCH_EXCLUDE_KEYWORDS = [
         'replica', 'plated', 'clad', 'copy', 'tribute', 'repair',
-        'parts', 'bezel', 'setting', 'ring', 'pendant', 'chain',
-        'mount', 'bracelet', 'earring', 'necklace'
+        'parts', 'jewelry', 'bracelet', 'earring', 'necklace'
     ]
     
     # Backward compatibility

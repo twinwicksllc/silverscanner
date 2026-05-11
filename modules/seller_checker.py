@@ -245,6 +245,9 @@ class SellerChecker:
                 # Suggested price: round up to nearest $0.50
                 suggested_price = round(fair_value * 2) / 2
                 gain_if_repriced = round(suggested_price - your_price, 2)
+            else:
+                # Still include item but mark metal/weight as unknown
+                alert = 'unknown'
 
             return {
                 'item_id':          item_id,
@@ -256,8 +259,8 @@ class SellerChecker:
                 'total_cost':       total_cost,
                 'metal_type':       metal_type,
                 'detected_oz':      detected_oz,
-                'metal_purity':    silver_result.get('purity') if metal_type == 'silver' else (gold_result.get('purity') if metal_type == 'gold' else 1.0),
-                'coin_type':       silver_result.get('type') if metal_type == 'silver' else (gold_result.get('type') if metal_type == 'gold' else 'Other'),
+                'metal_purity':    silver_result.get('purity') if metal_type == 'silver' else (gold_result.get('purity') if metal_type == 'gold' else None),
+                'coin_type':       silver_result.get('type') if metal_type == 'silver' else (gold_result.get('type') if metal_type == 'gold' else None),
                 'melt_value':       melt_value,
                 'fair_value':       fair_value,
                 'spot_price_used':  spot,
