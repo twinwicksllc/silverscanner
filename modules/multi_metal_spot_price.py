@@ -54,12 +54,13 @@ class MultiMetalSpotPrice:
         # Database manager for saving price history
         self.db_manager = DatabaseManager()
         
-        # Last save time to avoid too frequent saves (at most once every 10 minutes)
+        # Last save time to avoid too frequent saves (at most once every 1 minute)
         self._last_save_time = {'silver': None, 'gold': None, 'platinum': None, 'palladium': None}
-        self.SAVE_INTERVAL_MINUTES = 10
+        self.SAVE_INTERVAL_MINUTES = 1  # Reduced to 1 minute to ensure frequent capture on refresh
     
     def _should_save_history(self, metal: str) -> bool:
         """Check if enough time has passed to save history again"""
+        # Always allow if for test or forced (can be extended if needed)
         now = datetime.now()
         last_save = self._last_save_time.get(metal)
         
