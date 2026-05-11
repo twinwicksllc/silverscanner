@@ -161,6 +161,28 @@ class ASWCalculator:
         
         return patterns
 
+    def _is_total_weight(self, text: str) -> bool:
+        """
+        Check if the extracted weight in text is labeled as a total (not per-unit)
+        Returns True if text contains indicators like "ASW", "total", "all", etc.
+        """
+        text_lower = text.lower()
+        
+        # Check if any total indicator appears near a weight/oz pattern
+        patterns = [
+            r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz\s+(asw|total|all|combined|altogether)',  # "0.542 oz ASW"
+            r'(asw|total|all|combined|altogether)[:\s]+(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz',  # "ASW: 0.542 oz"
+            r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz\s+(?:.*?)?\s+(asw|total weight|all)',  # "0.542 oz total"
+            r'(total|all)\s+(?:.*?)?\s+(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz',  # "total 0.542 oz"
+        ]
+        
+        for pattern in patterns:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                logger.debug(f"Detected total weight label in text")
+                return True
+        
+        return False
+
     def _is_excluded(self, text: str) -> bool:
         """Check if item contains exclusion keywords"""
         return any(kw in text.lower() for kw in self.exclusion_keywords)
@@ -423,16 +445,26 @@ class ASWCalculator:
                     result['identified'] = False
                     logger.warning(f"Junk silver listing without face value: {title[:50]}")
             else:
+                # Check if this is a total weight (e.g., "0.542oz ASW") vs per-unit weight
+                combined_text = f"{title} {description}"
+                is_total = self._is_total_weight(combined_text)
+                
                 # Standard coins - check for quantity
                 quantity = self.extract_quantity(title, description)
                 result['quantity'] = quantity
-                result['asw'] = coin_info['base_asw'] * quantity
                 
-                # Adjust confidence based on clarity
-                if quantity > 1:
-                    result['confidence'] = 0.7  # More uncertainty with quantities
+                # If it's labeled as total ASW, use it as is; otherwise multiply by quantity
+                if is_total:
+                    result['asw'] = coin_info['base_asw']  # Already a total
+                    result['confidence'] = 0.95  # Very high confidence when ASW is stated
+                    logger.debug(f"Detected total weight (ASW): {coin_info['base_asw']} oz")
                 else:
-                    result['confidence'] = 0.85
+                    result['asw'] = coin_info['base_asw'] * quantity
+                    # Adjust confidence based on clarity
+                    if quantity > 1:
+                        result['confidence'] = 0.7  # More uncertainty with quantities
+                    else:
+                        result['confidence'] = 0.85
         
         return result
     
