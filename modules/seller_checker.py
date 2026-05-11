@@ -12,6 +12,7 @@ from modules.ebay_api import eBayAPI
 from modules.asw_calculator import ASWCalculator
 from modules.gold_calculator import GoldCalculator
 from modules.multi_metal_spot_price import MultiMetalSpotPrice
+from config import Config
 
 logger = logging.getLogger(__name__)
 
