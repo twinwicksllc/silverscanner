@@ -47,7 +47,7 @@ class SellerChecker:
         self,
         seller_username: str,
         metal_filter: str = 'all',          # 'silver', 'gold', or 'all'
-        max_listings: int = 200,
+        max_listings: int = 400,
     ) -> Dict:
         """
         Fetch all active listings for *seller_username* and analyse pricing.

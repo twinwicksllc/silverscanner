@@ -269,7 +269,7 @@ class eBayAPI:
             logger.error(f"Error extracting item details: {e}")
             return {}
     
-    def get_seller_listings(self, seller_username: str, max_results: int = 200,
+    def get_seller_listings(self, seller_username: str, max_results: int = 400,
                              metal_filter: str = 'all') -> List[Dict]:
         """
         Fetch active listings for a specific eBay seller using the Browse API
@@ -304,12 +304,11 @@ class eBayAPI:
 
         # eBay Browse API requires a real keyword in 'q'.
         # Scope the query to the requested metal so results are more relevant.
-        # NOTE: For 'all', use a single broad term — multi-word queries use AND logic and
-        # would exclude listings that don't contain every word.
+        # NOTE: For 'all', use a broad query to catch more items
         _METAL_QUERIES = {
             'silver': 'silver',
             'gold':   'gold',
-            'all':    'coin',   # broad single term; sellers filter narrows results to this seller
+            'all':    'silver|gold|coin|bullion|bar|round',   
         }
         q_term = _METAL_QUERIES.get(metal_filter, 'coin')
 
