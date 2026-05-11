@@ -25,7 +25,8 @@ class ASWCalculator:
             'silver tone', 'silver-tone', 'not real silver',
             'not actual silver', 'silver appearance', 'looks like silver',
             'layered', 'vermeil', 'electroplate', 'silver leaf',
-            'clad', 'alpacca', 'german silver', 'nickel silver'
+            'clad', 'alpacca', 'german silver', 'nickel silver',
+            'copper', 'brass', 'bronze', 'aluminum', 'reproduction'
         ]
     
     def _build_coin_patterns(self) -> Dict[str, Dict]:
@@ -138,23 +139,43 @@ class ASWCalculator:
         """Extract weight from text, converting to troy oz"""
         text = text.lower()
         
+        # Helper to convert fractions to float
+        def parse_fraction(val: str) -> float:
+            if '/' in val:
+                try:
+                    num, den = val.split('/')
+                    return float(num) / float(den)
+                except (ValueError, ZeroDivisionError):
+                    return 0.0
+            return float(val)
+
         patterns = [
-            # Troy oz
-            (r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz(?:s|troy)?', 'troy_oz', 1.0),
-            (r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?ounce', 'troy_oz', 1.0),
+            # Troy oz (handling fractions like 1/10)
+            (r'\b(\d+(?:/\d+)?(?:\.\d+)?)\s*(?:troy\s+)?oz(?:s|troy)?', 'troy_oz', 1.0),
+            (r'\b(\d+(?:/\d+)?(?:\.\d+)?)\s*(?:troy\s+)?ounce', 'troy_oz', 1.0),
             # Grams
-            (r'(\d+(?:\.\d+)?)\s*g\b(?!rain)', 'grams', 1/31.1035),
-            (r'(\d+(?:\.\d+)?)\s*grams?', 'grams', 1/31.1035),
+            (r'\b(\d+(?:\.\d+)?)\s*g\b(?!rain)', 'grams', 1/31.1035),
+            (r'\b(\d+(?:\.\d+)?)\s*gram(?:s)?', 'grams', 1/31.1035),
             # Kilos
-            (r'(\d+(?:\.\d+)?)\s*kg\b', 'kilos', 32.1507),
-            (r'(\d+(?:\.\d+)?)\s*kilo(?:gram)?s?', 'kilos', 32.1507),
+            (r'\b(\d+(?:\.\d+)?)\s*kg\b', 'kilos', 32.1507),
+            (r'\b(\d+(?:\.\d+)?)\s*kilo(?:gram)?s?', 'kilos', 32.1507),
         ]
         
+        # Pre-filter: if text contains "copper", skip weight extraction for silver
+        # (Though _is_excluded should catch it, this is an extra safety layer locally)
+        if 'copper' in text:
+            return None
+
         for pattern, unit, conversion in patterns:
             match = re.search(pattern, text)
             if match:
                 try:
-                    weight = float(match.group(1))
+                    weight_str = match.group(1)
+                    # Skip values that look like purity but are caught by weight regex
+                    if weight_str in ['.999', '999', '99.9']:
+                         continue
+                         
+                    weight = parse_fraction(weight_str)
                     if 0.001 < weight < 5000:  # Sanity check
                         return {
                             'weight': weight,
@@ -172,7 +193,12 @@ class ASWCalculator:
         
         # Look for "silver" AND ("round" OR "bar" OR bullion keywords)
         is_silver = 'silver' in text_lower or '.999' in text_lower
-        is_bullion = any(kw in text_lower for kw in ['round', 'bar', 'bullion', 'ingot', 'coin'])
+        
+        # Expanded keywords to include generic coin terms
+        is_bullion = any(kw in text_lower for kw in [
+            'round', 'bar', 'bullion', 'ingot', 'coin', 
+            'ounce', 'oz', 'gram', '.999', 'pure'
+        ])
         
         if not (is_silver and is_bullion):
             return {'identified': False}
@@ -182,7 +208,16 @@ class ASWCalculator:
             return {'identified': False}
             
         weight_oz = weight_info['weight_oz']
-        item_type = 'Silver Bar' if 'bar' in text_lower else 'Silver Round' if 'round' in text_lower else 'Silver Bullion'
+        
+        # Better name logic
+        if 'bar' in text_lower:
+            item_type = 'Silver Bar'
+        elif 'round' in text_lower:
+            item_type = 'Silver Round'
+        elif 'coin' in text_lower:
+            item_type = 'Silver Coin'
+        else:
+            item_type = 'Silver Bullion'
         
         return {
             'identified': True,
@@ -294,6 +329,14 @@ class ASWCalculator:
         title = item.get('title', '')
         description = item.get('description', '')
         
+        # Check exclusion keywords first
+        if self._is_excluded(title) or self._is_excluded(description):
+            return {
+                'identified': False,
+                'asw': 0.0,
+                'reason': 'Excluded by keyword'
+            }
+
         result = {
             'identified': False,
             'coin_type': None,
