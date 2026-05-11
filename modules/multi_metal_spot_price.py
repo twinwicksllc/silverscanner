@@ -54,9 +54,23 @@ class MultiMetalSpotPrice:
         # Database manager for saving price history
         self.db_manager = DatabaseManager()
         
-        # Counter to save price history every other fetch
-        self._fetch_count = {'silver': 0, 'gold': 0, 'platinum': 0, 'palladium': 0}
+        # Last save time to avoid too frequent saves (at most once every 10 minutes)
+        self._last_save_time = {'silver': None, 'gold': None, 'platinum': None, 'palladium': None}
+        self.SAVE_INTERVAL_MINUTES = 10
     
+    def _should_save_history(self, metal: str) -> bool:
+        """Check if enough time has passed to save history again"""
+        now = datetime.now()
+        last_save = self._last_save_time.get(metal)
+        
+        if last_save is None:
+            return True
+            
+        if now - last_save > timedelta(minutes=self.SAVE_INTERVAL_MINUTES):
+            return True
+            
+        return False
+
     def _scrape_gold_price_kitco(self) -> Optional[float]:
         """Scrape gold price from Kitco as fallback"""
         try:
@@ -365,6 +379,18 @@ class MultiMetalSpotPrice:
                             'timestamp': datetime.now().isoformat(),
                             'verified': True
                         }
+                        
+                        # Save price history if interval reached
+                        if self._should_save_history(metal_name):
+                            try:
+                                self.db_manager.save_price_history(
+                                    price=price,
+                                    source='CoinGecko',
+                                    metal_type=metal_name
+                                )
+                                self._last_save_time[metal_name] = datetime.now()
+                            except Exception as db_err:
+                                logger.error(f"Error saving {metal_name} price history: {db_err}")
                 else:
                     results[metal_name] = {
                         'spot_price': None,
@@ -399,14 +425,14 @@ class MultiMetalSpotPrice:
             price_info['threshold'] = threshold
             price_info['threshold_percentage'] = Config.DEAL_THRESHOLD_PERCENTAGE
             
-            # Save price history every other fetch
-            self._fetch_count['silver'] += 1
-            if self._fetch_count['silver'] % 2 == 0:
+            # Save price history if interval reached
+            if self._should_save_history('silver'):
                 self.db_manager.save_price_history(
                     price=spot_price,
                     source=price_info.get('source'),
                     metal_type='silver'
                 )
+                self._last_save_time['silver'] = datetime.now()
             
             return {
                 'spot_price': spot_price,
@@ -444,10 +470,32 @@ class MultiMetalSpotPrice:
             price_info['threshold'] = threshold
             price_info['threshold_percentage'] = Config.METAL_THRESHOLDS.get('gold', 92.0)
             
-            # Save price history every other fetch
-            self._fetch_count['gold'] += 1
-            if self._fetch_count['gold'] % 2 == 0:
+            # Save price history if interval reached
+            if self._should_save_history('gold'):
                 self.db_manager.save_price_history(
+                    price=spot_price,
+                    source=price_info.get('source'),
+                    metal_type='gold'
+                )
+                self._last_save_time['gold'] = datetime.now()
+            
+            return {
+                'spot_price': spot_price,
+                'threshold': threshold,
+                'threshold_percentage': price_info.get('threshold_percentage', Config.METAL_THRESHOLDS.get('gold', 92.0)),
+                'source': price_info.get('source'),
+                'timestamp': price_info.get('timestamp'),
+                'verified': price_info.get('verified', False)
+            }
+        
+        return {
+            'spot_price': None,
+            'threshold': None,
+            'threshold_percentage': Config.METAL_THRESHOLDS.get('gold', 92.0),
+            'source': 'None',
+            'timestamp': datetime.now().isoformat(),
+            'verified': False
+        }
                     price=spot_price,
                     source=price_info.get('source'),
                     metal_type='gold'

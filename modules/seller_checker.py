@@ -172,9 +172,8 @@ class SellerChecker:
             item_url = item.get('itemWebUrl', '')
             image_url = item.get('image', {}).get('imageUrl', '')
 
-            # Skip scam/replica items
-            scam_kw = ['replica', 'plated', 'clad', 'copy', 'tribute', 'repair',
-                       'parts', 'bezel', 'setting', 'ring', 'pendant', 'chain']
+            # Skip scam/replica items (using global config)
+            scam_kw = Config.SEARCH_EXCLUDE_KEYWORDS
             title_lower = title.lower()
             if any(kw in title_lower for kw in scam_kw):
                 logger.debug(f"Skipping item (scam/excluded keyword): {title[:60]}")
@@ -257,6 +256,8 @@ class SellerChecker:
                 'total_cost':       total_cost,
                 'metal_type':       metal_type,
                 'detected_oz':      detected_oz,
+                'metal_purity':    silver_result.get('purity') if metal_type == 'silver' else (gold_result.get('purity') if metal_type == 'gold' else 1.0),
+                'coin_type':       silver_result.get('type') if metal_type == 'silver' else (gold_result.get('type') if metal_type == 'gold' else 'Other'),
                 'melt_value':       melt_value,
                 'fair_value':       fair_value,
                 'spot_price_used':  spot,

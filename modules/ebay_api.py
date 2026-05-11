@@ -124,7 +124,7 @@ class eBayAPI:
         seen_item_ids = set()
         
         # Search in coins category
-        for keyword in Config.SEARCH_KEYWORDS:
+        for keyword in Config.SILVER_SEARCH_KEYWORDS:
             items = self.search_listings(keyword, Config.EBAY_CATEGORY_COINS)
             for item in items:
                 item_id = item.get('itemId')
@@ -133,7 +133,7 @@ class eBayAPI:
                     seen_item_ids.add(item_id)
         
         # Search in bullion category
-        for keyword in ['silver bullion', 'silver bars', 'silver rounds']:
+        for keyword in Config.SILVER_BULLION_KEYWORDS:
             items = self.search_listings(keyword, Config.EBAY_CATEGORY_BULLION)
             for item in items:
                 item_id = item.get('itemId')
@@ -147,13 +147,13 @@ class eBayAPI:
     def get_all_gold_listings(self) -> List[Dict]:
         """
         Search for gold listings across all configured keywords and categories
-        Excludes items with 'bezel' in the title (jewelry settings)
+        Excludes items with forbidden keywords in the title (jewelry settings, replicas, etc.)
         """
         all_items = []
         seen_item_ids = set()
         
         # Keywords to exclude from gold search (jewelry-related)
-        exclude_keywords = ['bezel', 'setting', 'mount', 'ring', 'pendant', 'chain']
+        exclude_keywords = Config.SEARCH_EXCLUDE_KEYWORDS
         
         # Search in coins category
         for keyword in Config.GOLD_SEARCH_KEYWORDS:
@@ -172,7 +172,7 @@ class eBayAPI:
                     seen_item_ids.add(item_id)
         
         # Search in bullion category for gold
-        for keyword in ['gold bullion', 'gold bars', 'gold rounds']:
+        for keyword in Config.GOLD_BULLION_KEYWORDS:
             items = self.search_listings(keyword, Config.EBAY_CATEGORY_BULLION)
             for item in items:
                 item_id = item.get('itemId')

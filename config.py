@@ -80,6 +80,9 @@ class Config:
         'Junk silver lot'
     ]
     
+    # Generic bullion keywords searched in Bullion category
+    SILVER_BULLION_KEYWORDS = ['silver bullion', 'silver bars', 'silver rounds']
+    
     GOLD_SEARCH_KEYWORDS = [
         'gold eagle',
         'gold buffalo',
@@ -91,6 +94,16 @@ class Config:
         '$10 gold',
         'gold bar',
         'gold round',
+    ]
+
+    # Generic gold bullion keywords
+    GOLD_BULLION_KEYWORDS = ['gold bullion', 'gold bars', 'gold rounds']
+
+    # Keywords to exclude from searches (jewelry, replicas, etc.)
+    SEARCH_EXCLUDE_KEYWORDS = [
+        'replica', 'plated', 'clad', 'copy', 'tribute', 'repair',
+        'parts', 'bezel', 'setting', 'ring', 'pendant', 'chain',
+        'mount', 'bracelet', 'earring', 'necklace'
     ]
     
     # Backward compatibility

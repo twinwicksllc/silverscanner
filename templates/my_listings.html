@@ -352,15 +352,16 @@
                             <tr>
                                 <th style="width:56px;"></th>
                                 <th>Listing Title</th>
+                                <th>Type</th>
                                 <th>Metal</th>
-                                <th>Your Price</th>
-                                <th>Detected Oz</th>
-                                <th>Melt Value</th>
-                                <th>Fair Value</th>
+                                <th>Price</th>
+                                <th>Weight (oz)</th>
+                                <th>Melt</th>
+                                <th>Fair Val</th>
                                 <th>Gap&nbsp;%</th>
                                 <th>Alert</th>
-                                <th>Suggested Price</th>
-                                <th>Gain if Repriced</th>
+                                <th>Suggest</th>
+                                <th>Gain</th>
                             </tr>
                         </thead>
                         <tbody id="listings-tbody">
@@ -513,6 +514,10 @@
         const [alertCls, alertTxt] = alertMap[l.alert] || alertMap.unknown;
         const alertBadge = `<span class="alert-badge ${alertCls}">${alertTxt}</span>`;
 
+        // Type and purity info
+        const typeInfo = `<div style="font-size:0.75rem; color:#666;">${l.coin_type || 'Other'}</div>
+                          <div style="font-size:0.7rem; color:#888;">${l.metal_purity ? (l.metal_purity*100).toFixed(0)+'%' : ''}</div>`;
+
         // Gap % colour
         let gapHtml = '—';
         if (l.gap_pct != null) {
@@ -534,6 +539,7 @@
         return `
             <td>${thumb}</td>
             <td class="listing-title-cell"><a href="${l.item_url}" target="_blank" rel="noopener">${escHtml(l.title)}</a></td>
+            <td>${typeInfo}</td>
             <td>${metalPill}</td>
             <td class="price-cell">${fmt(l.your_price)}</td>
             <td>${fmtOz(l.detected_oz)}</td>
