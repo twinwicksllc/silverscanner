@@ -262,35 +262,32 @@ class MultiMetalSpotPrice:
         Get spot price for specified metal
         
         Args:
-            metal_type: 'silver', 'gold', 'platinum', or 'palladium'
-        
+            metal_type: Type of metal ('silver', 'gold', 'platinum', 'palladium')
+            
         Returns:
-            Dict with spot_price, source, timestamp, verified
+            Dict containing spot_price, source, timestamp, and verified status
         """
-        metal_type = metal_type.lower()
-        
-        if metal_type not in self.metal_mapping:
-            raise ValueError(f"Unsupported metal type: {metal_type}")
-        
-        # Check cache first
-        cache_key = f"single_{metal_type}"
-        if cache_key in self._cache:
-            cached_data, cached_time = self._cache[cache_key]
-            if datetime.now() - cached_time < self._cache_duration:
+        # Check cache
+        if metal_type in self._cache:
+            price_data, cache_time = self._cache[metal_type]
+            if datetime.now() - cache_time < self._cache_duration:
                 logger.debug(f"Using cached price for {metal_type}")
-                return cached_data
-        
+                return price_data
+                
         # Rate limiting
         self._rate_limit()
         
         try:
-            coin_id = self.metal_mapping[metal_type]
-            
+            coin_id = self.metal_mapping.get(metal_type)
+            if not coin_id:
+                return {'spot_price': None, 'source': 'None', 'verified': False}
+                
             params = {
                 'ids': coin_id,
                 'vs_currencies': 'usd'
             }
             
+            logger.info(f"Fetching {metal_type} price from CoinGecko...")
             response = self.session.get(self.coingecko_url, params=params, timeout=10)
             response.raise_for_status()
             
@@ -299,48 +296,43 @@ class MultiMetalSpotPrice:
             if coin_id in data and 'usd' in data[coin_id]:
                 price = data[coin_id]['usd']
                 
-                # Sanity checks for each metal
-                if self._is_price_valid(metal_type, price):
-                    logger.info(f"{metal_type.capitalize()} spot price from CoinGecko: ${price:.2f}/oz")
-                    result = {
-                        'spot_price': price,
-                        'source': 'CoinGecko',
-                        'timestamp': datetime.now().isoformat(),
-                        'verified': True
-                    }
-                    # Cache the result
-                    self._cache[cache_key] = (result, datetime.now())
-                    return result
-                else:
-                    logger.warning(f"Price for {metal_type} outside expected range: ${price:.2f}")
+                # Validation
+                if not self._is_price_valid(metal_type, price):
+                    logger.warning(f"Invalid price received for {metal_type}: ${price}")
+                    return {'spot_price': None, 'source': 'None', 'verified': False}
+                
+                result = {
+                    'spot_price': price,
+                    'source': 'CoinGecko',
+                    'timestamp': datetime.now().isoformat(),
+                    'verified': True
+                }
+                
+                # Cache result
+                self._cache[metal_type] = (result, datetime.now())
+                return result
             
         except Exception as e:
-            logger.error(f"Error fetching {metal_type} spot price: {e}")
-        
+            logger.error(f"Error fetching {metal_type} price from CoinGecko: {e}")
+            
         return {
             'spot_price': None,
             'source': 'None',
             'timestamp': datetime.now().isoformat(),
             'verified': False
         }
-    
+
     def _rate_limit(self):
-        """Implement rate limiting to avoid API throttling"""
-        current_time = time.time()
-        time_since_last_request = current_time - self._last_request_time
-        
-        if time_since_last_request < self._min_request_interval:
-            sleep_time = self._min_request_interval - time_since_last_request
-            time.sleep(sleep_time)
-        
+        """Simple rate limiting to avoid getting blocked"""
+        elapsed = time.time() - self._last_request_time
+        if elapsed < self._min_request_interval:
+            time.sleep(self._min_request_interval - elapsed)
         self._last_request_time = time.time()
-    
+
     def get_all_spot_prices(self) -> Dict[str, Dict]:
         """
-        Get spot prices for all supported metals
-        
-        Returns:
-            Dictionary with metal names as keys and price info as values
+        Get spot prices for all supported metals in a single API call
+        Returns dict of metal_name -> price_info_dict
         """
         # Check cache first
         cache_key = "all_metals"
@@ -478,28 +470,6 @@ class MultiMetalSpotPrice:
                     metal_type='gold'
                 )
                 self._last_save_time['gold'] = datetime.now()
-            
-            return {
-                'spot_price': spot_price,
-                'threshold': threshold,
-                'threshold_percentage': price_info.get('threshold_percentage', Config.METAL_THRESHOLDS.get('gold', 92.0)),
-                'source': price_info.get('source'),
-                'timestamp': price_info.get('timestamp'),
-                'verified': price_info.get('verified', False)
-            }
-        
-        return {
-            'spot_price': None,
-            'threshold': None,
-            'threshold_percentage': Config.METAL_THRESHOLDS.get('gold', 92.0),
-            'source': 'None',
-            'timestamp': datetime.now().isoformat(),
-            'verified': False
-        }
-                    price=spot_price,
-                    source=price_info.get('source'),
-                    metal_type='gold'
-                )
             
             return {
                 'spot_price': spot_price,
