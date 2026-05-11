@@ -16,6 +16,17 @@ class ASWCalculator:
     def __init__(self):
         self.asw_values = Config.ASW_VALUES
         self.coin_patterns = self._build_coin_patterns()
+        
+        # Anti-scam exclusion keywords for silver
+        self.exclusion_keywords = [
+            'plated', 'filled', 'overlay', 'tone', 'color',
+            'replica', 'copy', 'fake', 'costume', 'fashion',
+            'imitation', 'silver-colored', 'silver colored',
+            'silver tone', 'silver-tone', 'not real silver',
+            'not actual silver', 'silver appearance', 'looks like silver',
+            'layered', 'vermeil', 'electroplate', 'silver leaf',
+            'clad', 'alpacca', 'german silver', 'nickel silver'
+        ]
     
     def _build_coin_patterns(self) -> Dict[str, Dict]:
         """
@@ -89,53 +100,98 @@ class ASWCalculator:
                 'asw': 0.7234,  # per $1 face value
                 'name': '90% Junk Silver (per $1 face)'
             },
-            '1 oz silver round': {
-                'patterns': [
-                    r'1\s*oz\s*silver\s*round',
-                    r'silver\s*round.*1\s*oz',
-                    r'1\s*oz\s*round'
-                ],
-                'asw': 1.0,
-                'name': '1 oz Silver Round'
-            },
-            '1 oz silver bar': {
-                'patterns': [
-                    r'1\s*oz\s*silver\s*bar',
-                    r'silver\s*bar.*1\s*oz',
-                    r'1\s*oz\s*bar'
-                ],
-                'asw': 1.0,
-                'name': '1 oz Silver Bar'
-            },
-            '10 oz silver bar': {
-                'patterns': [
-                    r'10\s*oz\s*silver\s*bar',
-                    r'silver\s*bar.*10\s*oz'
-                ],
-                'asw': 10.0,
-                'name': '10 oz Silver Bar'
-            },
-            '100 oz silver bar': {
-                'patterns': [
-                    r'100\s*oz\s*silver\s+bar',
-                    r'silver\s+bar.*100\s*oz'
-                ],
-                'asw': 100.0,
-                'name': '100 oz Silver Bar'
-            },
             'silver eagle': {
                 'patterns': [
                     r'american\s+silver\s+eagle',
-                    r'silver\s+eagle.*1\s*oz',
-                    r'ase.*silver'
+                    r'silver\s+eagle',
+                    r'\base\b.*silver'
                 ],
                 'asw': 1.0,
                 'name': 'American Silver Eagle'
+            },
+            'silver maple': {
+                'patterns': [
+                    r'canadian\s+silver\s+maple',
+                    r'silver\s+maple',
+                    r'maple\s+leaf.*silver'
+                ],
+                'asw': 1.0,
+                'name': 'Silver Maple Leaf'
+            },
+            'silver buffalo': {
+                'patterns': [
+                    r'silver\s+buffalo',
+                    r'buffalo\s+silver'
+                ],
+                'asw': 1.0,
+                'name': 'Silver Buffalo'
             }
         }
         
         return patterns
-    
+
+    def _is_excluded(self, text: str) -> bool:
+        """Check if item contains exclusion keywords"""
+        return any(kw in text.lower() for kw in self.exclusion_keywords)
+
+    def _extract_weight(self, text: str) -> Optional[Dict]:
+        """Extract weight from text, converting to troy oz"""
+        text = text.lower()
+        
+        patterns = [
+            # Troy oz
+            (r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?oz(?:s|troy)?', 'troy_oz', 1.0),
+            (r'(\d+(?:\.\d+)?)\s*(?:troy\s+)?ounce', 'troy_oz', 1.0),
+            # Grams
+            (r'(\d+(?:\.\d+)?)\s*g\b(?!rain)', 'grams', 1/31.1035),
+            (r'(\d+(?:\.\d+)?)\s*grams?', 'grams', 1/31.1035),
+            # Kilos
+            (r'(\d+(?:\.\d+)?)\s*kg\b', 'kilos', 32.1507),
+            (r'(\d+(?:\.\d+)?)\s*kilo(?:gram)?s?', 'kilos', 32.1507),
+        ]
+        
+        for pattern, unit, conversion in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    weight = float(match.group(1))
+                    if 0.001 < weight < 5000:  # Sanity check
+                        return {
+                            'weight': weight,
+                            'unit': unit,
+                            'weight_oz': weight * conversion
+                        }
+                except (ValueError, IndexError):
+                    pass
+        
+        return None
+
+    def _identify_generic_silver(self, text: str) -> Dict:
+        """Identify generic silver rounds and bars by extracting weight"""
+        text_lower = text.lower()
+        
+        # Look for "silver" AND ("round" OR "bar" OR bullion keywords)
+        is_silver = 'silver' in text_lower or '.999' in text_lower
+        is_bullion = any(kw in text_lower for kw in ['round', 'bar', 'bullion', 'ingot', 'coin'])
+        
+        if not (is_silver and is_bullion):
+            return {'identified': False}
+            
+        weight_info = self._extract_weight(text_lower)
+        if not weight_info:
+            return {'identified': False}
+            
+        weight_oz = weight_info['weight_oz']
+        item_type = 'Silver Bar' if 'bar' in text_lower else 'Silver Round' if 'round' in text_lower else 'Silver Bullion'
+        
+        return {
+            'identified': True,
+            'type': f'generic_{item_type.lower().replace(" ", "_")}',
+            'name': f'{weight_info["weight"]} {weight_info["unit"]} {item_type}',
+            'asw': weight_oz,
+            'confidence': 0.75
+        }
+
     def identify_coin_type(self, title: str, description: str = '') -> Optional[Dict]:
         """
         Identify coin type from title and description
@@ -145,6 +201,7 @@ class ASWCalculator:
         desc_lower = description.lower() if description else ''
         text_to_search = f"{title_lower} {desc_lower}"
         
+        # 1. Check specific patterns (Morgan, Peace, Eagles, etc.)
         for coin_key, coin_info in self.coin_patterns.items():
             for pattern in coin_info['patterns']:
                 if re.search(pattern, text_to_search):
@@ -155,6 +212,15 @@ class ASWCalculator:
                         'base_asw': coin_info['asw']
                     }
         
+        # 2. Try generic weight extraction for rounds/bars
+        generic_info = self._identify_generic_silver(text_to_search)
+        if generic_info['identified']:
+            return {
+                'type': generic_info['type'],
+                'name': generic_info['name'],
+                'base_asw': generic_info['asw']
+            }
+            
         return None
     
     def extract_face_value(self, title: str, description: str = '') -> float:
@@ -238,6 +304,11 @@ class ASWCalculator:
             'calculation_method': None,
             'confidence': 0.0
         }
+
+        # Check for exclusion keywords first
+        if self._is_excluded(title) or self._is_excluded(description):
+            logger.debug(f"Item excluded (scam keywords): {title[:50]}...")
+            return result
         
         # Try to identify coin type
         coin_info = self.identify_coin_type(title, description)
