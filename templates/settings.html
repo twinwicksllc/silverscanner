@@ -52,7 +52,7 @@
 
                 <div class="form-group">
                     <label for="min_seller_feedback">
-                        Minimum Seller Feedback
+                        Minimum Seller Feedback %
                     </label>
                     <input type="number" 
                            id="min_seller_feedback" 
@@ -63,6 +63,24 @@
                            value="{{ config.MIN_SELLER_FEEDBACK }}">
                     <div class="help-text">
                         Minimum seller rating percentage to consider. Default: 98.0%
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="min_seller_feedback_count">
+                        Minimum Seller Feedback Count
+                    </label>
+                    <input type="number" 
+                           id="min_seller_feedback_count" 
+                           name="min_seller_feedback_count"
+                           min="1" 
+                           max="10000" 
+                           step="1"
+                           value="{{ config.MIN_SELLER_FEEDBACK_COUNT }}">
+                    <div class="help-text">
+                        Minimum number of feedback records to prevent new/suspicious sellers.
+                        Example: Set to 50 to avoid sellers with only 1-2 feedbacks.
+                        Default: 50
                     </div>
                 </div>
             </section>
@@ -246,6 +264,7 @@
             const formData = {
                 threshold_percentage: document.getElementById('threshold_percentage').value,
                 min_seller_feedback: document.getElementById('min_seller_feedback').value,
+                min_seller_feedback_count: document.getElementById('min_seller_feedback_count').value,
                 scan_interval: document.getElementById('scan_interval').value,
                 user_timezone: document.getElementById('user_timezone').value
             };

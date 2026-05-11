@@ -240,6 +240,7 @@ class eBayAPI:
             seller = item.get('seller', {})
             seller_username = seller.get('username', '')
             seller_feedback = float(seller.get('feedbackPercentage', 0))
+            seller_feedback_count = int(seller.get('feedbackScore', 0))  # Total number of feedback records
             
             # Condition
             condition = item.get('condition', 'Unknown')
@@ -256,6 +257,7 @@ class eBayAPI:
                 'item_url': item_url,
                 'seller_username': seller_username,
                 'seller_feedback': seller_feedback,
+                'seller_feedback_count': seller_feedback_count,
                 'condition': condition,
                 'image_url': item.get('image', {}).get('imageUrl', ''),
                 'listing_type': item.get('buyingOptions', []),

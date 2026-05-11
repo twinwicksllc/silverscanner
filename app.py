@@ -517,6 +517,11 @@ def api_settings():
             Config.MIN_SELLER_FEEDBACK = value
             db_manager.save_setting('MIN_SELLER_FEEDBACK', str(value))
             
+        if 'min_seller_feedback_count' in data:
+            value = int(data['min_seller_feedback_count'])
+            Config.MIN_SELLER_FEEDBACK_COUNT = value
+            db_manager.save_setting('MIN_SELLER_FEEDBACK_COUNT', str(value))
+            
         if 'user_timezone' in data:
             value = str(data['user_timezone'])
             Config.USER_TIMEZONE = value

@@ -41,7 +41,8 @@ class Config:
     SCAN_INTERVAL_MINUTES = int(os.getenv('SCAN_INTERVAL_MINUTES', 15))
     MAX_ITEMS_PER_SCAN = int(os.getenv('MAX_ITEMS_PER_SCAN', 200))
     DEAL_THRESHOLD_PERCENTAGE = float(os.getenv('DEAL_THRESHOLD_PERCENTAGE', 83.0))
-    MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))
+    MIN_SELLER_FEEDBACK = float(os.getenv('MIN_SELLER_FEEDBACK', 98.0))  # minimum feedback percentage
+    MIN_SELLER_FEEDBACK_COUNT = int(os.getenv('MIN_SELLER_FEEDBACK_COUNT', 50))  # minimum number of feedback records
     
     # Multi-Metal Support
     METALS_ENABLED = os.getenv('METALS_ENABLED', 'silver,gold').split(',')

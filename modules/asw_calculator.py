@@ -513,10 +513,16 @@ class ASWCalculator:
         if not metrics['is_deal']:
             return False
         
-        # Check seller feedback
+        # Check seller feedback percentage
         seller_feedback = item.get('seller_feedback', 0.0)
         if seller_feedback < Config.MIN_SELLER_FEEDBACK:
             logger.info(f"Rejected: Seller feedback {seller_feedback}% below minimum {Config.MIN_SELLER_FEEDBACK}%")
+            return False
+        
+        # Check seller feedback count (prevent new accounts with fake positive ratings)
+        seller_feedback_count = item.get('seller_feedback_count', 0)
+        if seller_feedback_count < Config.MIN_SELLER_FEEDBACK_COUNT:
+            logger.info(f"Rejected: Seller feedback count {seller_feedback_count} below minimum {Config.MIN_SELLER_FEEDBACK_COUNT}")
             return False
         
         # Check condition
