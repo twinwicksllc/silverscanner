@@ -137,13 +137,17 @@ class ASWCalculator:
 
     def _extract_weight(self, text: str) -> Optional[Dict]:
         """Extract weight from text, converting to troy oz"""
-        text = text.lower()
+        # Clean title of common purity numbers to avoid confusion with weights
+        # but keep decimal points for fractional weights
+        clean_text = re.sub(r'\b(0?\.999+)\b', ' PURITY ', text.lower())
+        clean_text = re.sub(r'\b(999)\b', ' PURITY ', clean_text)
         
         # Helper to convert fractions to float
         def parse_fraction(val: str) -> float:
             if '/' in val:
                 try:
                     num, den = val.split('/')
+                    # Special case for "1/10" which is very common
                     return float(num) / float(den)
                 except (ValueError, ZeroDivisionError):
                     return 0.0
@@ -163,19 +167,20 @@ class ASWCalculator:
         
         # Pre-filter: if text contains "copper", skip weight extraction for silver
         # (Though _is_excluded should catch it, this is an extra safety layer locally)
-        if 'copper' in text:
+        if 'copper' in text.lower():
             return None
 
         for pattern, unit, conversion in patterns:
-            match = re.search(pattern, text)
+            match = re.search(pattern, clean_text)
             if match:
                 try:
                     weight_str = match.group(1)
-                    # Skip values that look like purity but are caught by weight regex
-                    if weight_str in ['.999', '999', '99.9']:
-                         continue
-                         
                     weight = parse_fraction(weight_str)
+                    
+                    # Sanity check: reject values that are likely purities if they slipped through
+                    if weight in [0.999, 999, 99.9, 0.925, 925]:
+                        continue
+
                     if 0.001 < weight < 5000:  # Sanity check
                         return {
                             'weight': weight,
@@ -300,20 +305,31 @@ class ASWCalculator:
         desc_lower = description.lower() if description else ''
         text_to_search = f"{title_lower} {desc_lower}"
         
+        # Clean purity from search text for quantity too
+        text_to_search = re.sub(r'\b(0?\.999+)\b', ' PURITY ', text_to_search)
+        text_to_search = re.sub(r'\b(999)\b', ' PURITY ', text_to_search)
+        
         patterns = [
-            r'(\d+)\s*(?:coin|coins|pc|pcs|pieces)',
             r'lot\s+of\s+(\d+)',
             r'set\s+of\s+(\d+)',
-            r'(\d+)\s*(?:x|count)',
-            r'(\d+)\s*-\s*coin'
+            r'(\d+)\s*(?:pc|pcs|pieces)',
+            r'(\d+)\s+x\s+(?!1\s*g)', # Exclude "5 x 1 g" from being quantity 5
+            r'(\d+)\s*count',
+            r'^(\d+)\s+(?:lot|set)', # Starts with number
         ]
         
+        # More conservative check: avoid generic numbers followed by "coins" if they are large
+        # unless preceded by "lot of" etc.
+        match = re.search(r'lot\s+of\s+(\d+)', text_to_search)
+        if match:
+            return int(match.group(1))
+
         for pattern in patterns:
             matches = re.findall(pattern, text_to_search)
             for match in matches:
                 try:
                     quantity = int(match)
-                    if quantity > 0 and quantity <= 10000:  # Reasonable range
+                    if 1 < quantity <= 500:  # More conservative top end
                         logger.debug(f"Extracted quantity: {quantity}")
                         return quantity
                 except (ValueError, TypeError):
